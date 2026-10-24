@@ -5,12 +5,12 @@
      /cover/<id>?v=       an item's cover, fetched from the computer once and kept
      /catcover?…          a catalogue cover, through the computer
    It also keeps the app itself for offline use, and shows the News notifications the computer sends. */
-const VERSION = "7663d6533513";
+const VERSION = "ed838fa09260";
 const SHELL = "shell-" + VERSION;
 importScripts("ios/net.js", "ios/store.js", "ios/zip.js");
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(["./", "index.html", "manifest.webmanifest", "css/app.css", "css/fonts.css", "css/themes.css", "ios/apple-touch-icon.png", "ios/bridge.js", "ios/icon-192.png", "ios/icon-512.png", "ios/ios.css", "ios/net.js", "ios/store.js", "ios/zip.js", "js/app.js", "js/catalogue.js", "js/dictate.js", "js/journal.js", "js/news.js", "js/readers.js", "js/themes.js", "vendor/epub.min.js", "vendor/jszip.min.js", "vendor/pdf.min.js", "vendor/pdf.worker.min.js", "vendor/fonts/anton-latin-400-normal.woff2", "vendor/fonts/archivo-narrow-latin-400-normal.woff2", "vendor/fonts/archivo-narrow-latin-600-normal.woff2", "vendor/fonts/archivo-narrow-latin-700-normal.woff2", "vendor/fonts/chakra-petch-latin-700-normal.woff2", "vendor/fonts/cormorant-garamond-latin-600-normal.woff2", "vendor/fonts/fredoka-latin-400-normal.woff2", "vendor/fonts/fredoka-latin-600-normal.woff2", "vendor/fonts/fredoka-latin-700-normal.woff2", "vendor/fonts/ibm-plex-mono-latin-400-normal.woff2", "vendor/fonts/ibm-plex-mono-latin-600-normal.woff2", "vendor/fonts/ibm-plex-mono-latin-700-normal.woff2", "vendor/fonts/im-fell-english-latin-400-normal.woff2", "vendor/fonts/libre-baskerville-latin-400-normal.woff2", "vendor/fonts/nunito-latin-400-normal.woff2", "vendor/fonts/nunito-latin-600-normal.woff2", "vendor/fonts/nunito-latin-700-normal.woff2", "vendor/fonts/permanent-marker-latin-400-normal.woff2"])).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(["./", "index.html", "manifest.webmanifest", "css/app.css", "css/fonts.css", "css/themes.css", "ios/apple-touch-icon.png", "ios/bridge.js", "ios/icon-192.png", "ios/icon-512.png", "ios/ios.css", "ios/net.js", "ios/store.js", "ios/zip.js", "js/app.js", "js/catalogue.js", "js/dictate.js", "js/journal.js", "js/news.js", "js/readers.js", "js/themes.js", "vendor/epub.min.js", "vendor/jszip.min.js", "vendor/pdf.min.js", "vendor/pdf.worker.min.js", "vendor/fonts/anton-latin-400-normal.woff2", "vendor/fonts/archivo-narrow-latin-400-normal.woff2", "vendor/fonts/archivo-narrow-latin-600-normal.woff2", "vendor/fonts/archivo-narrow-latin-700-normal.woff2", "vendor/fonts/chakra-petch-latin-700-normal.woff2", "vendor/fonts/cormorant-garamond-latin-600-normal.woff2", "vendor/fonts/fredoka-latin-400-normal.woff2", "vendor/fonts/fredoka-latin-600-normal.woff2", "vendor/fonts/fredoka-latin-700-normal.woff2", "vendor/fonts/ibm-plex-mono-latin-400-normal.woff2", "vendor/fonts/ibm-plex-mono-latin-600-normal.woff2", "vendor/fonts/ibm-plex-mono-latin-700-normal.woff2", "vendor/fonts/im-fell-english-latin-400-normal.woff2", "vendor/fonts/libre-baskerville-latin-400-normal.woff2", "vendor/fonts/nunito-latin-400-normal.woff2", "vendor/fonts/nunito-latin-600-normal.woff2", "vendor/fonts/nunito-latin-700-normal.woff2", "vendor/fonts/permanent-marker-latin-400-normal.woff2", "vendor/libarchive/libarchive.js", "vendor/libarchive/libarchive.wasm", "vendor/libarchive/worker-bundle.js"])).then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", (e) => {
   e.waitUntil((async () => {
@@ -72,6 +72,17 @@ async function viaComputer(req, cacheName, path) {
   return res;
 }
 
+/* /net/<path>: a GET from the computer with the pairing token (subtitles and audiobook chapters; Range passes through) */
+async function net(req, path) {
+  await conn();
+  const range = req.headers.get("range");
+  const r = await Net.call("GET", path, null, 60000, range ? { Range: range } : {});
+  if (!r.status) return new Response("", { status: 503 });
+  const h = new Headers();
+  for (const k of ["content-type", "content-range", "content-length", "accept-ranges"]) if (r.res.headers.get(k)) h.set(k, r.res.headers.get(k));
+  return new Response(r.res.body, { status: r.res.status, headers: h });
+}
+
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin || e.request.method !== "GET") return;
@@ -85,6 +96,7 @@ self.addEventListener("fetch", (e) => {
     return e.respondWith(viaComputer(e.request, "covers", "/sync/cover/" + id));
   }
   if (p === "/catcover") return e.respondWith(viaComputer(e.request, "catcovers", "/sync/cat/cover" + url.search));
+  if (p.startsWith("/net/sync/")) return e.respondWith(net(e.request, p.slice(4) + url.search));
   // the app itself: from the phone first (it works offline), refreshed when a new version is published
   e.respondWith(caches.open(SHELL).then(async (c) => (await c.match(e.request, { ignoreSearch: true })) || fetch(e.request)));
 });
