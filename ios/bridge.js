@@ -5,7 +5,7 @@
      the rest    the service worker (sw.js) serves files, covers and comic pages; Safari does the browsing, its
                  speech recognition the dictation, Web Push the News notifications */
 (() => {
-  const APP_SCRIPTS = ["js/themes.js", "vendor/jszip.min.js", "vendor/epub.min.js", "vendor/pdf.min.js", "js/app.js", "js/dictate.js", "js/journal.js", "js/catalogue.js", "js/news.js", "js/readers.js"];
+  const APP_SCRIPTS = ["js/themes.js", "vendor/jszip.min.js", "vendor/epub.min.js", "vendor/pdf.min.js", "js/app.js", "js/online.js", "js/jukebox.js", "js/dictate.js", "js/journal.js", "js/catalogue.js", "js/news.js", "js/readers.js"];
   const kv = new Map();
   const files = {};               // name -> size, finished files only
   const dls = {};                 // download id -> {item, name, title, total, done, state}
@@ -246,6 +246,10 @@
     setBrowserTheme() {},
     openBrowser(url) {
       if (!url) return;
+      // words typed on the start page are a search (DuckDuckGo), an address without https:// gets one; the same
+      // as the Android browser does (otherwise Safari took the words for a page of this site: GitHub's 404)
+      const t = String(url).trim();
+      if (!/^https?:\/\//i.test(t)) url = !/\s/.test(t) && /^[\w-]+(\.[\w-]+)+(:\d+)?(\/.*)?$/.test(t) ? "https://" + t : "https://duckduckgo.com/?q=" + encodeURIComponent(t);
       try {
         const h = JSON.parse(kv.get("history.json") || "[]");
         h.push({ url, title: url.replace(/^https?:\/\/(www\.)?/, ""), t: Math.floor(Date.now() / 1000) });
