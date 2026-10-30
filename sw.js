@@ -5,7 +5,7 @@
      /cover/<id>?v=       an item's cover, fetched from the computer once and kept
      /catcover?…          a catalogue cover, through the computer
    It also keeps the app itself for offline use, and shows the News notifications the computer sends. */
-const VERSION = "0e58214b4b7f";
+const VERSION = "81b5cc4359d2";
 const SHELL = "shell-" + VERSION;
 importScripts("ios/net.js", "ios/store.js", "ios/zip.js");
 
