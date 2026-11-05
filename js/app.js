@@ -638,7 +638,7 @@ async function getFile(it, quiet) {
    get (the one tapped first), or null if it's dismissed */
 function pickSeries(it) {
   const k = inSeries(it) && seriesKey(it.series);
-  const rest = !k ? [] : Object.values(S.items).filter((x) => x.id !== it.id && x.has_file && inSeries(x) && seriesKey(x.series) === k && !onPhone(x) && !S.downloads[x.id]);
+  const rest = !k ? [] : Object.values(S.items).filter((x) => x.id !== it.id && x.has_file && !isCopy(x) && inSeries(x) && seriesKey(x.series) === k && !onPhone(x) && !S.downloads[x.id]);
   if (!rest.length) return Promise.resolve([it]);
   const all = [it, ...rest].sort(seriesOrder);
   const label = (x) => x.kind === "tv" && x.season != null ? `S${x.season}${x.episode != null ? " E" + x.episode : ""} · ${x.title}` : x.title;
@@ -1718,7 +1718,7 @@ function openSheet(id) {
 function kinHtml(it) {
   const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const lead = (x) => norm(((x.authors || [])[0] || "").replace(/^(.*),\s*(.*)$/, "$2 $1"));
-  const mine = Object.values(S.items).filter((x) => x.id !== it.id && x.has_file && x.kind !== "music");
+  const mine = Object.values(S.items).filter((x) => x.id !== it.id && x.has_file && x.kind !== "music" && !isCopy(x));
   let list = [], head = "";
   if (it.series) {
     list = mine.filter((x) => norm(x.series) === norm(it.series) && (it.kind === "tv") === (x.kind === "tv"))
@@ -1783,7 +1783,7 @@ async function fullDetails(id) {
       let these = [id];
       if (it && inSeries(it)) {           // one volume of a series (or episode of a show): just this one, or all of it?
         const k = seriesKey(it.series);
-        const rest = Object.values(S.items).filter((x) => x.id !== it.id && inSeries(x) && seriesKey(x.series) === k && !!x.private_to !== on);
+        const rest = Object.values(S.items).filter((x) => x.id !== it.id && !isCopy(x) && inSeries(x) && seriesKey(x.series) === k && !!x.private_to !== on);
         if (rest.length) {
           const whole = it.kind === "tv" ? "the whole show" : "the whole series";
           const a = await askKeep(on ? `Hide ${whole}?` : `Show ${whole} again?`, `“${it.series}” has ${rest.length} more ${rest.length > 1 ? "items" : "item"} in the library.`,
