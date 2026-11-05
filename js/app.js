@@ -1756,6 +1756,7 @@ async function fullDetails(id) {
       ${["book", "graphic"].includes(d.kind) && !d.has_cover ? `<button class="btn sm" data-act="pullcover">Pull cover</button>` : ""}
       ${["book", "graphic"].includes(d.kind) ? `<button class="btn sm" data-act="hardcover">Pull info from Hardcover</button>` : ""}
       ${vid ? `<button class="btn sm" data-act="poster">Find poster</button>` : ""}
+      ${d.file_type === "pdf" && d.kind !== "graphic" ? `<button class="btn sm" data-act="reading-copy">Make reading copy</button>` : ""}
       <button class="btn sm" data-act="reanalyze">Re-sort and re-tag</button>
       <button class="btn sm danger" data-act="remove">Remove from library</button>
     </div>
@@ -1813,6 +1814,18 @@ document.addEventListener("click", async (e) => {
   a.disabled = true;
   try {
     await api("POST", `/sync/item/${id}/${act}`, {});
+    if (act === "reading-copy") {
+      toast("Making a reading copy on your computer…");
+      for (let n = 0; n < 300; n++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const st = await api("GET", `/sync/item/${id}/reading-copy`);
+        if (st.state === "failed") throw new Error(st.error || "This PDF couldn't be converted.");
+        if (st.state === "done") break;
+      }
+      await sync();
+      a.disabled = false;
+      return toast("Reading copy made: it's in your library as its own item. Get it from there.");
+    }
     toast({ remove: "Removed from your library", pullcover: "Cover found", hardcover: "Info pulled from Hardcover", poster: "Poster found", reanalyze: "Re-sorting on your computer…" }[act]);
     await sync();
     if (act === "remove") return closeSheet();
