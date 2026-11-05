@@ -610,6 +610,19 @@ setInterval(() => { if (!document.hidden && !Reader.open) sync(); }, 60000);
 /* ---------------------------------------------------------------- files on the phone */
 const fileName = (it) => `${it.id}.${(it.file_type || "bin").toLowerCase()}`;
 const onPhone = (it) => !!S.files[fileName(it)] && !S.downloads[it.id];
+/* a paper's reading copy is one of its versions, not a book of its own */
+const isCopy = (it) => String(it?.source || "").startsWith("reading-copy:");
+const copyOf = (it) => it && !isCopy(it) ? Object.values(S.items).find((x) => x.source === `reading-copy:${it.id}` && x.has_file) : null;
+const hereAny = (it) => onPhone(it) || !!(copyOf(it) && onPhone(copyOf(it)));
+function whichVersion(it, verb, ok) {
+  const c = copyOf(it);
+  const opts = [[`Original ${String(it.file_type || "").toUpperCase()}${it.file_size ? " (" + fmtSize(it.file_size) + ")" : ""}`, it],
+    [`Reading copy (EPUB${c && c.file_size ? ", " + fmtSize(c.file_size) : ""})`, c]].filter(([, x]) => x && ok(x));
+  if (opts.length < 2) return Promise.resolve(opts[0] ? opts[0][1] : null);
+  return askKeep(`${verb} which version?`, "The reading copy reflows on small screens, with figures and tables at the end.",
+    [...opts.map(([l, x], i) => [l, x, i ? "" : "primary"]), ["Cancel", null]]);
+}
+function readHere(it) { return whichVersion(it, "Read", onPhone).then((v) => v && Reader.start(v)); }
 function refreshFiles() { if (A) try { S.files = JSON.parse(A.files()); } catch (e) {} }
 async function getFile(it, quiet) {
   if (!A || !it.has_file) return;
@@ -791,7 +804,7 @@ function setTab(t) {
 function render() {
   if (window.Widget) Widget.update();       // (the home-screen widget, when what it shows changed)
   const v = $("#view");
-  const items = Object.values(S.items);
+  const items = Object.values(S.items).filter((i) => !isCopy(i));
   if (!S.conn.token && S.tab !== "settings") {
     v.innerHTML = `<div class="empty"><h2>Welcome</h2><p>This app shows the library on your computer: your books, manga, comics, articles, music, TV and films, where you are in each one, and anything you've sent to your phone.</p>
       <button class="btn primary" data-go="settings">Pair with your computer</button></div>`;
@@ -975,7 +988,7 @@ function renderHome(v, items) {
   const coming2 = coming.length ? `<section class="sec"><h2>Coming from your computer</h2><div class="list" id="dlList">${coming.map(row).join("")}</div></section>` : "";
   if (W.tab === "bulletin") { v.innerHTML = `${uploadsHtml()}${Bulletin.html()}${swapHtml()}`; return Bulletin.after(); }
   // what's on the phone, the things you're in the middle of first, then the newest arrivals
-  const here = items.filter((i) => onPhone(i) && i.kind !== "music")
+  const here = items.filter((i) => hereAny(i) && i.kind !== "music")
     .sort((a, b) => (b.opened_at || 0) - (a.opened_at || 0) || (b.added_at || 0) - (a.added_at || 0));
   W.list = here.slice(0, 80);
   W.sel = Math.min(W.sel, Math.max(0, W.list.length - 1));
@@ -1039,7 +1052,7 @@ const W = {
         ${it.summary ? `<span class="ss-syn">${esc(it.summary)}</span>` : ""}</span>`;
   },
   move(n) { const s = Math.max(0, Math.min(this.list.length - 1, this.sel + n)); if (s !== this.sel) { this.sel = s; this.place(); } },
-  open() { const it = this.list[this.sel]; if (!it) return; if (onPhone(it)) Reader.start(it); else openSheet(it.id); },
+  open() { const it = this.list[this.sel]; if (!it) return; if (hereAny(it)) readHere(it); else openSheet(it.id); },
 };
 (() => {   // swiping the wheel: every 40px of drag is one card
   let y0 = null, moved = false;
@@ -1074,7 +1087,7 @@ const Bulletin = (() => {
   const shuffle = (list, r) => { const a = [...list]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const file = () => `challenge-${Prof.cur}.json`;
   let picks = null, potd;
-  const items = () => Object.values(S.items);
+  const items = () => Object.values(S.items).filter((i) => !isCopy(i));
 
   function finishedAt(it) {
     const l = Prof.isMain() && S.log.find((x) => x.item_id === it.id);
@@ -1229,7 +1242,7 @@ const Bulletin = (() => {
     if (t.closest("[data-bt-wire-refresh]")) { $("#btWorld").innerHTML = `<p class="hint">Checking the wire…</p>`; return paintWires(true); }
     const sto = t.closest("[data-bt-story]");
     if (sto && wires) { const [k, i] = sto.dataset.btStory.split(":"); const s = wires[k] && wires[k][Number(i)]; if (s) return NewsTab.read(s); }
-    const g = t.closest("[data-bt-go]"); if (g) { const it = S.items[g.dataset.btGo]; if (!it) return; return onPhone(it) ? Reader.start(it) : openSheet(it.id); }
+    const g = t.closest("[data-bt-go]"); if (g) { const it = S.items[g.dataset.btGo]; if (!it) return; return hereAny(it) ? readHere(it) : openSheet(it.id); }
     const w = t.closest("[data-bt-want]");
     if (w && picks) { e.stopPropagation(); return Catalogue.want(picks[Number(w.dataset.btWant)], w); }
     const fd = t.closest("[data-bt-find]"); if (fd && picks) return Catalogue.show(picks[Number(fd.dataset.btFind)]);
@@ -1285,7 +1298,7 @@ window.Widget = (() => {
   function open(id) {
     const it = S.items[id];
     if (!it) return setTab("home");
-    if (onPhone(it)) Reader.start(it); else openSheet(it.id);
+    if (hereAny(it)) readHere(it); else openSheet(it.id);
   }
   function tab(t) {
     if (t === "bulletin") { W.tab = "bulletin"; store("hometab.json", W.tab); }
@@ -1344,7 +1357,7 @@ function libList() {
   const nn = {};
   for (const a of Object.values(Ann.map())) nn[a.item_id] = (nn[a.item_id] || 0) + 1;
   const list = Object.values(S.items).filter((it) => {
-    if (!LIB.kinds[area].includes(it.kind)) return false;
+    if (isCopy(it) || !LIB.kinds[area].includes(it.kind)) return false;
     if (S.kind && S.kind !== "all" && !kindMatches(it, S.kind)) return false;
     const wish = it.wanted && !it.has_file;          // (wanted, not owned: only in the Wishlist, never among what's here)
     if (S.coll === "wish") { if (!wish) return false; }
@@ -1424,7 +1437,7 @@ function renderLibrary(v) {
 }
 function renderPhone(v, items) {
   refreshFiles();
-  const here = items.filter(onPhone).sort((a, b) => (b.opened_at || 0) - (a.opened_at || 0));
+  const here = items.filter(hereAny).sort((a, b) => (b.opened_at || 0) - (a.opened_at || 0));
   const used = here.reduce((s, i) => s + (S.files[fileName(i)] || 0), 0);
   const coming = Object.keys(S.downloads).map((id) => S.items[id]).filter(Boolean);
   v.innerHTML = `<div class="panel"><h3>Storage</h3><p class="hint">${here.length} files, ${fmtSize(used)} on the phone · ${A ? fmtSize(A.freeSpace()) : "?"} free</p></div>
@@ -1659,7 +1672,9 @@ function openSheet(id) {
   if (!it) return;
   S.sheetId = it.id;
   const sh = $("#sheet");
-  const here = onPhone(it), dl = S.downloads[id];
+  const rc = copyOf(it), mine = onPhone(it) ? it : rc && onPhone(rc) ? rc : it;
+  const here = hereAny(it), dlIt = S.downloads[id] ? it : rc && S.downloads[rc.id] ? rc : it, dl = S.downloads[dlIt.id];
+  const more = rc && !(onPhone(it) && onPhone(rc));        // (one version here, the other still on the computer)
   const st = dl && S.dlState[dl];
   const notes = Ann.of(it.id).sort((a, b) => a.created_at - b.created_at);
   const log = Prof.isMain() && S.log.find((l) => l.item_id === it.id || (it.kind === "tv" && l.kind === "show" && String(l.title).toLowerCase() === String(it.series || "").toLowerCase()));
@@ -1673,8 +1688,8 @@ function openSheet(id) {
     <div class="it-body">
       <div class="btns">
         ${here ? `<button class="btn primary" data-open="${it.id}">▶ ${verb(it)}</button>` : ""}
-        ${!here && dl ? `<div style="flex:1 1 100%"><div class="dlbar" data-dlbar="${it.id}"><i style="width:${st && st.total > 0 ? 100 * st.done / st.total : 3}%"></i></div><small class="hint">Starting…</small></div><button class="btn sm" data-cancel="${it.id}">Cancel</button>` : ""}
-        ${!here && !dl && it.has_file ? `<button class="btn primary" data-get="${it.id}">⬇ Get from computer${it.file_size ? " (" + fmtSize(it.file_size) + ")" : ""}</button>` : ""}
+        ${dl ? `<div style="flex:1 1 100%"><div class="dlbar" data-dlbar="${dlIt.id}"><i style="width:${st && st.total > 0 ? 100 * st.done / st.total : 3}%"></i></div><small class="hint">Starting…</small></div><button class="btn sm" data-cancel="${dlIt.id}">Cancel</button>` : ""}
+        ${(!here || more) && !dl && it.has_file ? `<button class="btn ${here ? "" : "primary"}" data-get="${it.id}">⬇ Get from computer${!rc && it.file_size ? " (" + fmtSize(it.file_size) + ")" : ""}</button>` : ""}
         ${!it.has_file ? `<span class="hint">${it.wanted ? "On your wishlist." : it.physical ? "A physical copy (no file)." : "No file on the computer."}</span>` : ""}
       </div>
       <div class="btns">
@@ -1682,7 +1697,7 @@ function openSheet(id) {
         ${isVideo(it) ? `<button class="btn sm" data-watched="${it.id}">${it.watched ? "✓ Watched" : "Mark watched"}</button>`
           : it.kind !== "music" ? `<button class="btn sm" data-finish="${it.id}">${p >= 100 ? "✓ Finished" : "Mark finished"}</button>` : ""}
         ${!it.has_file ? `<button class="btn sm" data-wish="${it.id}">${it.wanted ? "Remove from wishlist" : "Add to wishlist"}</button>` : ""}
-        ${here ? `<button class="btn sm" data-with="${it.id}">Open in another app</button><button class="btn sm danger" data-remove="${it.id}">Remove from phone</button>` : ""}
+        ${here ? `<button class="btn sm" data-with="${mine.id}">Open in another app</button><button class="btn sm danger" data-remove="${mine.id}">Remove ${rc && onPhone(it) && onPhone(rc) ? "the original " : ""}from phone</button>${rc && onPhone(it) && onPhone(rc) ? `<button class="btn sm danger" data-remove="${rc.id}">Remove the reading copy</button>` : ""}` : ""}
       </div>
       ${it.summary ? `<p class="sum">${esc(it.summary)}</p>` : ""}
       ${(it.authors || [])[0] && ["book", "graphic"].includes(it.kind) ? `<div class="btns"><button class="btn sm" data-ct-author="${esc(it.authors[0])}" data-ct-kind="${it.kind === "graphic" ? (it.format === "manga" ? "manga" : "comic") : "book"}">${it.kind === "graphic" ? "More from this author" : "All releases by " + esc(it.authors[0])}</button></div>` : ""}
@@ -1756,7 +1771,7 @@ async function fullDetails(id) {
       ${["book", "graphic"].includes(d.kind) && !d.has_cover ? `<button class="btn sm" data-act="pullcover">Pull cover</button>` : ""}
       ${["book", "graphic"].includes(d.kind) ? `<button class="btn sm" data-act="hardcover">Pull info from Hardcover</button>` : ""}
       ${vid ? `<button class="btn sm" data-act="poster">Find poster</button>` : ""}
-      ${d.file_type === "pdf" && d.kind !== "graphic" ? `<button class="btn sm" data-act="reading-copy">Make reading copy</button>` : ""}
+      ${d.file_type === "pdf" && d.kind !== "graphic" ? `<button class="btn sm" data-act="reading-copy">${copyOf(S.items[d.id]) ? "Make the reading copy again" : "Make reading copy"}</button>` : ""}
       <button class="btn sm" data-act="reanalyze">Re-sort and re-tag</button>
       <button class="btn sm danger" data-act="remove">Remove from library</button>
     </div>
@@ -1969,10 +1984,16 @@ document.addEventListener("click", (e) => {
   if (t.closest("#more")) { S.limit += 100; return render(); }
   const item = t.closest("[data-item]"); if (item) return openSheet(Number(item.dataset.item));
   if (t.closest("[data-close]")) return closeSheet();
-  const op = t.closest("[data-open]"); if (op) return Reader.start(S.items[op.dataset.open]);
+  const op = t.closest("[data-open]");
+  if (op) {
+    const x = S.items[op.dataset.open];
+    return readHere(x);
+  }
   const get = t.closest("[data-get]");
   if (get) {
-    return pickSeries(S.items[get.dataset.get]).then((list) => {
+    const x = S.items[get.dataset.get];
+    if (copyOf(x)) return whichVersion(x, "Get", (y) => !onPhone(y) && !S.downloads[y.id]).then((v) => { if (!v) return; get.disabled = true; return getFiles([v]).then(() => openSheet(x.id)); });
+    return pickSeries(x).then((list) => {
       if (!list) return;
       get.disabled = true;
       return getFiles(list).then(() => openSheet(Number(get.dataset.get)));
