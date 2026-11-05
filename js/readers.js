@@ -610,6 +610,7 @@ Object.assign(window.Reader, (() => {
     rend.hooks.content.register((contents) => {
       const d = contents.document;
       d.documentElement.style.setProperty("--eq", S.readEq || 1.4);
+      { const wide = d.createElement("style"); wide.textContent = ".babel-paper .eq{overflow-x:auto;overflow-y:hidden;white-space:nowrap;-webkit-overflow-scrolling:touch} .babel-paper .eq img{max-width:none !important}"; d.head.append(wide); }   // (a wide equation scrolls at full size here, rather than shrinking to fit)
       if ((() => { const m = String(th.bg || "").match(/[0-9a-f]{6}/i); if (!m) return false; const v = parseInt(m[0], 16); return ((v >> 16) * 299 + ((v >> 8 & 255) * 587) + (v & 255) * 114) / 1000 < 110; })()) { const inv = d.createElement("style"); inv.textContent = "img.im,img.gl,.eq img{filter:invert(1) hue-rotate(180deg)}"; d.head.append(inv); }   // (equations on a dark page)
       const s = d.createElement("style");
       s.textContent = `.ink-pin{position:absolute;z-index:5;width:24px;height:24px;margin:-26px 0 0 -12px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid rgba(0,0,0,.65);box-shadow:0 2px 6px rgba(0,0,0,.4);font:700 11px/20px sans-serif;text-align:center;color:#111}
