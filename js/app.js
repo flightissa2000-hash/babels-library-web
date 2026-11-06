@@ -543,6 +543,7 @@ function sync(force) {
       saveState();
       setTimeout(checkExpiring, 1500);
       await fetchSent(d.queue || []);
+      refreshCopies();
     } catch (e) {
       S.syncError = e.offline ? "offline" : e.message;
       if (e.status === 401) { S.syncError = "This phone was unpaired on the computer. Pair it again in Settings."; }
@@ -593,6 +594,21 @@ function merge(d, made = {}) {
   if (Array.isArray(d.bookmarks) && A && A.setBookmarks) syncBookmarks(d.bookmarks);
   Prof.apply();          // (what just arrived is the computer's progress: another profile's goes back on top)
   saveLibrary();
+}
+// a reading copy remade on the computer (a better converter): the one on the phone is fetched again (once per new size)
+function refreshCopies() {
+  if (!A) return;
+  refreshFiles();
+  let seen = {};
+  try { seen = JSON.parse(localStorage.getItem("copy-refreshed") || "{}"); } catch (e) {}
+  for (const it of Object.values(S.items)) {
+    const have = S.files[fileName(it)];
+    if (!isCopy(it) || !it.has_file || !it.file_size || !have || S.downloads[it.id] || have === it.file_size || seen[it.id] === it.file_size) continue;
+    seen[it.id] = it.file_size;
+    if (WEB) A.deleteFile(fileName(it));          // (the iPhone keeps pieces of the old file; Android replaces it)
+    getFile(it, true);
+  }
+  try { localStorage.setItem("copy-refreshed", JSON.stringify(seen)); } catch (e) {}
 }
 // files the computer sent ("Send to phone"): fetch them, then tell it they arrived
 async function fetchSent(queue) {
