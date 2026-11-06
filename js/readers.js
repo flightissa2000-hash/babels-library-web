@@ -924,12 +924,12 @@ Object.assign(window.Reader, (() => {
           const { flat, map } = flatten(el);
           any = any || flat.trim().length > 10;
           const label = (toc.find((t) => t.href.split("#")[0].split("/").pop() === sec.href.split("/").pop())?.label || "").trim();
-          for (const at of allAt(flat, q)) {
+          for (const [nth, at] of allAt(flat, q).entries()) {
             const range = el.ownerDocument.createRange();
             range.setStart(map[at][0], map[at][1]);
             const end = map[at + q.length - 1];
             range.setEnd(end[0], end[1] + 1);
-            R.hits.push({ cfi: sec.cfiFromRange(range) });
+            R.hits.push({ cfi: sec.cfiFromRange(range), href: sec.href, nth });
             rows.insertAdjacentHTML("beforeend", hitRow(R.hits.length - 1, label || `Section ${k + 1}`, flat, at, q.length));
           }
         } catch (e) { console.warn("search:", e); }
@@ -941,9 +941,26 @@ Object.assign(window.Reader, (() => {
   async function goToHit(h) {
     clearFind();
     if (R.kind === "epub") {
-      await R.rend.display(h.cfi);
-      R.findCfi = h.cfi;
-      R.rend.annotations.highlight(h.cfi, {}, null, "find-hl", { fill: "rgb(255, 210, 64)", "fill-opacity": "0.55", "mix-blend-mode": "multiply" });
+      // (the match is found again in the page as shown: a CFI worked out from the loaded file can land a little off)
+      const want = (R.findQ ?? $("#tocFindQ")?.value ?? "").trim().toLowerCase();
+      const rend = R.rendition || R.rend;
+      await rend.display(h.href);
+      const c = rend.getContents().find((x) => (R.book.spine.get(x.sectionIndex)?.href || "").split("/").pop() === h.href.split("/").pop());
+      let cfi = h.cfi;
+      if (c && want) {
+        const { flat, map } = flatten(c.document.body);
+        const at = allAt(flat, want)[h.nth] ?? allAt(flat, want)[0];
+        if (at != null) {
+          const range = c.document.createRange();
+          range.setStart(map[at][0], map[at][1]);
+          const end = map[at + want.length - 1];
+          range.setEnd(end[0], end[1] + 1);
+          try { cfi = c.cfiFromRange(range); } catch (e) {}
+        }
+      }
+      await rend.display(cfi);
+      R.findCfi = cfi;
+      rend.annotations.highlight(cfi, {}, null, "find-hl", { fill: "rgb(255, 210, 64)", "fill-opacity": "0.55", "mix-blend-mode": "multiply" });
       return;
     }
     R.go(h.page);
