@@ -1450,3 +1450,97 @@ html.reading .jx-puck{position:relative;display:grid;place-items:center;width:42
 .jx-puck.spin .cov,.jx-puck.spin .jx-vinyl{animation:jxspin 4s linear infinite}
 .jx-puck:not(.spin)::after{content:"▶";position:absolute;inset:3px;display:grid;place-items:center;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;font-size:.7rem}
 html.reading[data-theme=eink] .jx-bar{background:#fff;color:#000;border:1.5px solid #000;opacity:1}
+
+/* ---------------------------------------------------------------- status stamps on an item's page (Up next, Reading…) */
+.st-next:not(.st-p){background:var(--accent);color:var(--accent-ink,#fff)}
+.st-pick{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:14px 0 6px}
+.st-p{--sc:var(--accent);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:58px;padding:8px 2px 7px;
+  border-radius:14px;border:var(--btn-border,2px solid var(--line));background:var(--btn-bg,var(--surface));color:var(--ink);
+  font:700 .7rem/1.1 var(--font-ui,sans-serif);text-align:center;transition:transform .15s,box-shadow .15s,background .15s}
+.st-p i{font-style:normal;font-size:1.1rem;line-height:1}
+.st-p span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.st-p.st-reading{--sc:var(--accent2,#ffc93c)}.st-p.st-finished{--sc:var(--ok,#36b37e)}.st-p.st-hold{--sc:#8a63c9}.st-p.st-dropped{--sc:var(--danger,#d33)}
+.st-p:not(.on) i{color:var(--sc)}
+.st-p.on{background:var(--sc);border-color:var(--sc);color:#fff;transform:translateY(-2px);box-shadow:0 6px 14px -6px var(--sc)}
+.st-p.on.st-reading{color:#222}
+/* Word Town: chunky toy buttons, navy outline, drop shadow, bright town colours */
+[data-theme=wordtown] .st-p{border:3px solid #22304a;background:#fff;color:#22304a;border-radius:16px;box-shadow:0 4px 0 #22304a;font-family:"Fredoka","Nunito",sans-serif;font-weight:600}
+[data-theme=wordtown] .st-p.st-next{--sc:#4aa8ff}[data-theme=wordtown] .st-p.st-reading{--sc:#ffc93c}[data-theme=wordtown] .st-p.st-finished{--sc:#8fd17a}
+[data-theme=wordtown] .st-p.st-hold{--sc:#ff8fc0}[data-theme=wordtown] .st-p.st-dropped{--sc:#ff6b4a}
+[data-theme=wordtown] .st-p:not(.on) i{color:#22304a}
+[data-theme=wordtown] .st-p.on{background:var(--sc);border-color:#22304a;color:#22304a;transform:translateY(3px);box-shadow:0 1px 0 #22304a}
+[data-theme=wordtown] .st-p.on.st-next,[data-theme=wordtown] .st-p.on.st-dropped{color:#fff}
+/* Gruvbox: terminal tags, square corners, mono type, the palette's own colours */
+[data-theme=gruvbox] .st-p{border-radius:3px;border:1px solid #504945;background:#282828;color:#ebdbb2;font-family:"IBM Plex Mono",monospace;font-weight:600;box-shadow:none}
+[data-theme=gruvbox] .st-p.st-next{--sc:#83a598}[data-theme=gruvbox] .st-p.st-reading{--sc:#fabd2f}[data-theme=gruvbox] .st-p.st-finished{--sc:#b8bb26}
+[data-theme=gruvbox] .st-p.st-hold{--sc:#d3869b}[data-theme=gruvbox] .st-p.st-dropped{--sc:#fb4934}
+[data-theme=gruvbox] .st-p.on{color:#1d2021;transform:none;box-shadow:inset 0 -3px 0 rgba(0,0,0,.25)}
+[data-theme=gruvbox] .st-p.on span::before{content:"> "}
+/* e-ink: black on white, the chosen one inverted */
+[data-theme=eink] .st-p{border:2px solid #000;background:#fff;color:#000;box-shadow:none;transition:none}
+[data-theme=eink] .st-p:not(.on) i{color:#000}
+[data-theme=eink] .st-p.on{background:#000;color:#fff;border-color:#000;transform:none;box-shadow:none}
+[data-theme=wordtown] .st-next:not(.st-p){background:#4aa8ff;color:#fff}[data-theme=gruvbox] .st-next:not(.st-p){background:#83a598;color:#1d2021}[data-theme=eink] .st-next:not(.st-p){background:#fff;color:#000;border:1px solid #000}
+
+/* ---------------------------------------------------------------- Word Town: the top of the page and the Bulletin's masthead */
+/* (the sky's clouds sit below the top bar: one half-hidden behind the clock and the sync pill looked cut off) */
+html[data-theme=wordtown]{--texture:radial-gradient(circle at 12% 30%,#fff 0 40px,transparent 41px),radial-gradient(circle at 16% 28%,#fff 0 30px,transparent 31px),radial-gradient(circle at 86% 44%,#fff 0 42px,transparent 43px),radial-gradient(circle at 80% 46%,#fff 0 30px,transparent 31px),linear-gradient(#bfe7ff 0 70%,#a6e08f 70%)}
+.btm-title span i{display:block;font-style:normal}
+[data-theme=wordtown] .btm-cover{padding-top:122px}
+[data-theme=wordtown] .btm-title{top:14px;right:96px;flex-direction:column;align-items:flex-start;gap:10px}
+[data-theme=wordtown] .btm-title span{margin:0;padding:3px 11px;text-align:left;white-space:nowrap;color:#22304a;background:#fff;border:2.5px solid #22304a;border-radius:999px;box-shadow:0 3px 0 #22304a;font:700 .6rem/1.4 "Nunito",sans-serif;letter-spacing:.14em}
+[data-theme=wordtown] .btm-title span i{display:inline}
+[data-theme=wordtown] .btm-title span i+i::before{content:" · "}
+[data-theme=wordtown] .btm-ribbon{top:22px}
+[data-theme=wordtown] .btm-cover::before{background:radial-gradient(circle at 72% 9%,#fff 0 22px,transparent 23px),radial-gradient(circle at 78% 6%,#fff 0 17px,transparent 18px),radial-gradient(circle at 10% 92%,#ffc93c 0 24px,transparent 25px)}
+
+/* ---------------------------------------------------------------- Word Town jukebox: a toy-town music box — rainbow arch,
+   cream ticket window, chunky navy-outlined buttons, album cards like stickers on a sky-blue board */
+[data-theme=wordtown] .jukebox{background:radial-gradient(circle,rgba(255,255,255,.22) 0 3px,transparent 3.5px) 0 0/22px 22px,linear-gradient(180deg,#ff7a5a,#ff6b4a 40%,#f15a38);
+  border:3.5px solid #22304a;box-shadow:inset 0 0 0 5px #ffc93c,inset 0 0 0 8px #22304a,0 7px 0 #22304a;padding:0 14px 18px}
+[data-theme=wordtown] .jx-arch{padding:96px 10px 14px}
+[data-theme=wordtown] .jx-neon{left:22px;right:22px;top:18px;height:74px;border:0;box-shadow:none;animation:none;
+  background:radial-gradient(50% 100% at 50% 100%,transparent 0 46%,#22304a 46% 49%,#4aa8ff 49% 59%,#22304a 59% 62%,#8fd17a 62% 72%,#22304a 72% 75%,#ffc93c 75% 85%,#22304a 85% 88%,#ff8fc0 88% 97%,#22304a 97% 100%,transparent 100%)}
+[data-theme=wordtown] .jx-arch b{position:relative;font:700 2.1rem/1 "Fredoka",sans-serif;letter-spacing:.14em;color:#fff;-webkit-text-stroke:0;text-shadow:2.6px 0.0px 0 #22304a,2.4px 0.99px 0 #22304a,1.84px 1.84px 0 #22304a,0.99px 2.4px 0 #22304a,0.0px 2.6px 0 #22304a,-0.99px 2.4px 0 #22304a,-1.84px 1.84px 0 #22304a,-2.4px 0.99px 0 #22304a,-2.6px 0.0px 0 #22304a,-2.4px -0.99px 0 #22304a,-1.84px -1.84px 0 #22304a,-0.99px -2.4px 0 #22304a,-0.0px -2.6px 0 #22304a,0.99px -2.4px 0 #22304a,1.84px -1.84px 0 #22304a,2.4px -0.99px 0 #22304a,3px 4px 0 #22304a,4px 5px 0 #22304a}
+[data-theme=wordtown] .jx-arch small{position:relative;display:inline-block;margin-top:10px;padding:3px 12px;border-radius:999px;background:#22304a;color:#ffc93c;opacity:1;font:800 .6rem "Nunito",sans-serif;letter-spacing:.24em}
+[data-theme=wordtown] .jx-window{background:#fffaf0;color:#22304a;border:3px solid #22304a;border-radius:18px;box-shadow:0 4px 0 #22304a,inset 0 0 0 4px #fff3d6}
+[data-theme=wordtown] .jx-idle{font:600 .92rem "Fredoka","Nunito",sans-serif;font-style:normal;opacity:1}
+[data-theme=wordtown] .jx-np small:first-child{color:#ff6b4a}
+[data-theme=wordtown] .jx-rec{box-shadow:0 0 0 3px #22304a,0 0 0 6px #ffc93c}
+[data-theme=wordtown] .jx-window .jx-b{color:#22304a}
+[data-theme=wordtown] .jx-window .jx-b.jx-play{background:#ffc93c;border:2.5px solid #22304a;box-shadow:0 3px 0 #22304a}
+[data-theme=wordtown] .jx-window .jx-b.on{color:#ff6b4a;text-shadow:none}
+[data-theme=wordtown] .jx-dial{gap:10px;margin:2px 0 16px}
+[data-theme=wordtown] .jx-dial .btn{flex:1;max-width:190px;padding:10px 12px;border:3px solid #22304a;border-radius:16px;background:#ffc93c;color:#22304a;font:700 .95rem "Fredoka","Nunito",sans-serif;box-shadow:0 4px 0 #22304a}
+[data-theme=wordtown] .jx-dial .btn+.btn{background:#fff}
+[data-theme=wordtown] .jx-dial .btn:active{transform:translateY(3px);box-shadow:0 1px 0 #22304a}
+[data-theme=wordtown] .jx-cards{padding:12px 10px 14px;border-radius:18px;border:3px solid #22304a;box-shadow:inset 0 3px 0 rgba(34,48,74,.12);
+  background:radial-gradient(circle,rgba(255,255,255,.7) 0 2px,transparent 2.5px) 0 0/18px 18px,#bfe7ff}
+[data-theme=wordtown] .jx-rowname{color:#22304a;font-family:"Fredoka","Nunito",sans-serif;font-weight:700;letter-spacing:.08em}
+[data-theme=wordtown] .jx-rowname b{background:#ff6b4a;color:#fff;border:2.5px solid #22304a;width:28px;height:28px;box-shadow:0 2px 0 #22304a}
+[data-theme=wordtown] .jx-rowname::after{height:3px;border-radius:3px;background:repeating-linear-gradient(90deg,#22304a 0 8px,transparent 8px 14px);opacity:.45}
+[data-theme=wordtown] .jx-strips{gap:14px 12px}
+[data-theme=wordtown] .jx-strip{border:3px solid #22304a;border-radius:16px;padding:7px 7px 9px;background:#fff;box-shadow:0 5px 0 #22304a;transform:rotate(-1deg);transition:transform .15s}
+[data-theme=wordtown] .jx-strip:nth-child(even){transform:rotate(1deg)}
+[data-theme=wordtown] .jx-strip:nth-child(4n+3){background:#fff3d6}[data-theme=wordtown] .jx-strip:nth-child(4n+2){background:#fffaf0}
+[data-theme=wordtown] .jx-strip:active{transform:translateY(3px) rotate(0);box-shadow:0 2px 0 #22304a}
+[data-theme=wordtown] .jx-art{border-radius:11px;border:2.5px solid #22304a}
+[data-theme=wordtown] .jx-code{background:#ffc93c;color:#22304a;border:2px solid #22304a;box-shadow:none;border-radius:8px;font-family:"Fredoka",sans-serif;font-weight:700}
+[data-theme=wordtown] .jx-go{background:#ff6b4a;color:#fff;border:2.5px solid #22304a;box-shadow:0 3px 0 #22304a}
+[data-theme=wordtown] .jx-t b{font-family:"Fredoka","Nunito",sans-serif;font-weight:600}
+[data-theme=wordtown] .jx-t small{color:#5a6a86;opacity:1}
+[data-theme=wordtown] .jx-grille{gap:10px;margin-top:18px}
+[data-theme=wordtown] .jx-grille i{width:34px;height:34px;flex:none;border-radius:50%;border:3px solid #22304a;box-shadow:inset 0 -4px 0 rgba(0,0,0,.18);background:#ffc93c}
+[data-theme=wordtown] .jx-grille i:nth-child(4n+2){background:#4aa8ff}[data-theme=wordtown] .jx-grille i:nth-child(4n+3){background:#8fd17a}[data-theme=wordtown] .jx-grille i:nth-child(4n+4){background:#ff8fc0}
+[data-theme=wordtown] .jx-bigrec{box-shadow:0 0 0 4px #22304a,0 0 0 10px #ffc93c,0 0 0 13px #22304a,0 12px 0 13px rgba(34,48,74,.25)}
+[data-theme=wordtown] .jx-bar{background:#ff6b4a;color:#fff;border:3px solid #22304a;box-shadow:0 4px 0 #22304a,inset 0 0 0 2px #ffc93c}
+[data-theme=wordtown] .jx-bar .jx-play{background:#ffc93c;color:#22304a;border:2.5px solid #22304a}
+
+/* BABEL on the Bulletin: an outline drawn around the letters, not over them (a thick stroke filled in the A's little window) */
+[data-theme=wordtown] .btm-title b{-webkit-text-stroke:0;letter-spacing:.04em;text-shadow:4.0px 0.0px 0 #22304a,3.8px 1.24px 0 #22304a,3.24px 2.35px 0 #22304a,2.35px 3.24px 0 #22304a,1.24px 3.8px 0 #22304a,0.0px 4.0px 0 #22304a,-1.24px 3.8px 0 #22304a,-2.35px 3.24px 0 #22304a,-3.24px 2.35px 0 #22304a,-3.8px 1.24px 0 #22304a,-4.0px 0.0px 0 #22304a,-3.8px -1.24px 0 #22304a,-3.24px -2.35px 0 #22304a,-2.35px -3.24px 0 #22304a,-1.24px -3.8px 0 #22304a,-0.0px -4.0px 0 #22304a,1.24px -3.8px 0 #22304a,2.35px -3.24px 0 #22304a,3.24px -2.35px 0 #22304a,3.8px -1.24px 0 #22304a,6px 7px 0 #22304a,7px 8px 0 #22304a}
+.chip-lbl{flex:none;align-self:center;font-size:.8rem;margin-right:4px;color:var(--ink-soft)}
+/* an item's cover, held to change it */
+#sheet .it-head .cov{transition:transform .5s ease,box-shadow .5s ease;-webkit-touch-callout:none;user-select:none}
+#sheet .it-head .cov.holding{transform:scale(.94) rotate(-2deg);box-shadow:0 0 0 4px var(--accent)}
+#sheet .it-head .cov img{-webkit-user-drag:none;pointer-events:none}
+.it-covhint{display:block;margin-top:2px;font-size:.7rem;opacity:.7}

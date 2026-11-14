@@ -1,7 +1,7 @@
 /* The journal on the phone: the same reading/watching log as the computer's Journal (status, finish date, score for
    films, and dated review entries), changed here and sent back on the next sync. */
 const Journal = (() => {
-  const STATUS = [["reading", "Reading"], ["finished", "Finished"], ["hold", "On hold"], ["dropped", "Dropped"]];
+  const STATUS = [["reading", "Reading"], ["next", "Up next"], ["finished", "Finished"], ["hold", "On hold"], ["dropped", "Dropped"]];
   const KIND_ICON = { book: "📖", movie: "🎬", show: "📺", game: "🎮", other: "✦", writing: "✍" };
   /* two notebooks, as on the computer: the review journal, and the writing notebook (ideas, drafts, and the quick
      notes put into it). The writing notebook's pages are log rows of kind "writing". */
@@ -11,6 +11,7 @@ const Journal = (() => {
   const cid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   const today = () => new Date().toISOString().slice(0, 10);
   let openId = null;      // the log row on screen
+  let openKey = null;     // ...and what else finds it again once a sync gives it the computer's id (its item, title)
 
   function jop(op) {
     S.jops.push({ ...op, ts: now() });
@@ -18,6 +19,21 @@ const Journal = (() => {
     clearTimeout(jop.t); jop.t = setTimeout(() => sync(), 3000);
   }
   const logById = (id) => S.log.find((l) => String(l.id) === String(id));
+  // the open row: by its id, or, when a sync just swapped the phone's temporary row for the computer's, by its item
+  function openLog() {
+    if (openId == null) return null;
+    let l = logById(openId);
+    if (!l && openKey) {
+      l = (openKey.item_id && S.log.find((x) => x.item_id === openKey.item_id))
+        || S.log.find((x) => x.kind === openKey.kind && x.title === openKey.title && !String(x.id).startsWith("c:"));
+      if (l) openId = l.id;
+    }
+    return l || null;
+  }
+  // after a sync: the computer's ids for rows made here (the open one keeps working)
+  function remap(made) {
+    if (openId != null && String(openId).startsWith("c:") && made && made[String(openId).slice(2)] != null) openId = made[String(openId).slice(2)];
+  }
   const entriesOf = (l) => Object.values(S.journal).filter((j) => String(j.log_id) === String(l.id)).sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
   const statusOf = (l) => l.status || (l.finished ? "finished" : "");
   const fmtDay = (d) => { if (!d) return ""; const t = new Date(d + "T12:00:00"); return isNaN(t) ? d : t.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }); };
@@ -41,6 +57,12 @@ const Journal = (() => {
     jop({ op: "log", ...ref, fields });
   }
 
+  // the status picked on an item's own page (tap the one it has to take it off)
+  function setStatus(it, k) {
+    const l = forItem(it), cur = statusOf(l);
+    if (cur === k) return setFields(l, { status: "", ...(k === "finished" ? { finished: null } : {}) });
+    setFields(l, { status: k, ...(k === "finished" && !l.finished ? { finished: today() } : {}) });
+  }
   const key = (l) => (l.finished ? "1" + l.finished : statusOf(l) === "reading" ? "2" : "0");
 
   function render(v) {
@@ -101,7 +123,6 @@ const Journal = (() => {
         w.remove();
         toast(body.remove ? "Cover taken off" : "Cover saved");
         open(l.id);
-        if (S.tab === "journal") render();
       } catch (e) { w.querySelector(".ka-card").classList.remove("busy"); toast(e.offline ? "Choosing a cover needs the computer" : e.message); }
     };
     w.addEventListener("submit", (e) => {
@@ -150,15 +171,16 @@ const Journal = (() => {
     const l = logById(id);
     if (!l) return;
     openId = l.id;
+    openKey = { item_id: l.item_id, kind: l.kind, title: l.title };
     const it = l.item_id && S.items[l.item_id];
     const st = statusOf(l);
     const ents = entriesOf(l);
     const sh = $("#sheet");
     sh.innerHTML = `<div class="sheet-bar"><button class="back" data-close>‹</button><h2>${esc(l.title)}</h2></div>
       <div class="it-body" style="padding-top:14px">
-        <div class="j-head">${it && !l.cover_v ? `<button class="card" data-item="${it.id}" style="width:96px">${cover(it, false)}</button>` : l.kind === "writing" ? logCover(l, it, "width:96px") : `<button class="card" data-jcover style="width:96px">${logCover(l, it, "width:96px")}</button>`}
+        <div class="j-head">${it && !l.cover_v ? `<button class="card" data-item="${it.id}" style="width:96px">${cover(it, false)}</button>` : `<button class="card" data-jcover style="width:96px">${logCover(l, it, "width:96px")}</button>`}
           <div><h3>${esc(l.title)}</h3><p class="hint">${esc({ book: "Book", movie: "Film", show: "TV show", game: "Game", other: "Other", writing: "Writing notebook" }[l.kind] || "")}${it ? " · in your library" : ""}</p>
-            ${l.kind === "writing" ? "" : `<button class="btn sm" data-jcover>🖼 ${l.cover_v || it?.has_cover ? "Change the cover" : "Add a cover"}</button>`}</div></div>
+            <button class="btn sm" data-jcover>🖼 ${l.cover_v || it?.has_cover ? "Change the cover" : "Add a cover"}</button></div></div>
         ${l.kind === "writing" ? "" : `<div class="chips j-status">${STATUS.map(([k, n]) => `<button data-jset="${k}" class="${st === k ? "on" : ""}">${n}</button>`).join("")}</div>
         <div class="j-fields">
           <label class="field"><span>Finished on</span><input type="date" id="jFin" value="${esc(l.finished || "")}"></label>
@@ -307,7 +329,7 @@ const Journal = (() => {
       return open(l.id);
     }
     const lg = t.closest("[data-log]"); if (lg) return open(lg.dataset.log);
-    if (t.closest("[data-jcover]") && openId != null) { const l = logById(openId); if (l) coverPicker(l); return; }
+    if (t.closest("[data-jcover]") && openId != null) { const l = openLog(); if (l) coverPicker(l); return; }
     if (t.closest("#jNew")) return newLog();
     if (t.closest("#qNote")) { if (skipQuickClick) { skipQuickClick = false; return; } return openQuick(); }
     if (t.closest("#qAdd")) {
@@ -355,7 +377,7 @@ const Journal = (() => {
       jop({ op: "log_new", cid: c, fields });
       return open("c:" + c);
     }
-    const l = openId != null && logById(openId);
+    const l = openLog();
     if (!l || $("#sheet").hidden) return;
     const set = t.closest("[data-jset]");
     if (set) { const k = set.dataset.jset; setFields(l, { status: k, ...(k === "finished" && !l.finished ? { finished: today() } : {}) }); return open(l.id); }
@@ -397,7 +419,7 @@ const Journal = (() => {
   });
   document.addEventListener("change", (e) => {
     if (e.target.id === "nKind") { const s = $("#nStatus"); if (s) s.hidden = e.target.value === "other"; return; }
-    const l = openId != null && logById(openId);
+    const l = openLog();
     if (!l) return;
     if (e.target.id === "jFin") setFields(l, { finished: e.target.value || null, ...(e.target.value ? { status: "finished" } : {}) });
     if (e.target.id === "jScore") setFields(l, { score: e.target.value === "" ? null : Math.max(0, Math.min(10, Number(e.target.value))) });
@@ -411,5 +433,5 @@ const Journal = (() => {
     }
   });
 
-  return { render, open, forItem, quick: openQuick, isOpen: () => openId != null && !$("#sheet").hidden, close: () => { openId = null; } };
+  return { render, open, forItem, remap, setStatus, statusOf, STATUS, quick: openQuick, isOpen: () => openId != null && !$("#sheet").hidden, close: () => { openId = null; openKey = null; } };
 })();

@@ -4,7 +4,11 @@ const Catalogue = (() => {
   const C = { cat: "book", view: "new", q: "", subject: "", subjects: {}, results: null, who: "", seq: 0 };
   const DEPTS = [["book", "Books"], ["manga", "Manga"], ["comic", "Comics"], ["movie", "Films"], ["tv", "TV"], ["animation", "Animation"]];
   const VIEWS = [["new", "New"], ["browse", "Browse"], ["search", "Search"], ["wish", "Wishlist"]];
-  const get = (path, params) => api("GET", `/sync/cat/${path}?${new URLSearchParams({ cat: C.cat, ...params })}`);
+  const pathOf = (path, params) => `/sync/cat/${path}?${new URLSearchParams({ cat: C.cat, ...params })}`;
+  const get = (path, params) => api("GET", pathOf(path, params));
+  // what came last time (kept on the phone), shown at once while the fresh copy is fetched
+  const kept = (path, params) => (typeof Online !== "undefined" && Online.recall(pathOf(path, params))) || null;
+  const fresh = {};        // path → when it was last fetched this session (fetched again only after 10 minutes)
   const coverSrc = (r) => "/catcover?" + new URLSearchParams({ u: /^https:\/\//.test(r.cover || "") ? r.cover : "", isbn: r.isbn || "", t: r.title || "", a: (r.authors || [])[0] || "" });
   const wished = () => Object.values(S.items).filter((i) => i.wanted && !i.has_file);
   let shown = [];       // the cards on screen, for opening one
@@ -40,25 +44,46 @@ const Catalogue = (() => {
     if (C.view === "browse") {
       const subs = C.subjects[C.cat];
       v.innerHTML = head + `<div class="chips ct-aisles" id="ctAisles">${subs ? subs.map((x) => `<button data-ct-sub="${esc(x.key)}" class="${x.key === C.subject ? "on" : ""}">${esc(x.label)}</button>`).join("") : ""}</div>${subs ? `<div class="ct-restock"><span>This aisle restocks itself weekly</span><button class="btn sm" data-ct-restock>↻ Refresh</button></div>` : ""}<div id="ctBody">${note("Stocking the shelves…")}</div>`;
+      if (!subs && kept("subjects", {})) C.subjects[C.cat] = kept("subjects", {});
+      if (!subs && C.subjects[C.cat]) { render(v); get("subjects", {}).then((s) => { C.subjects[C.cat] = s; }).catch(() => {}); return; }
       if (!subs) {
         get("subjects", {}).then((s) => { C.subjects[C.cat] = s; if (!s.some((x) => x.key === C.subject)) C.subject = s[0]?.key || "trending"; if (id === C.seq) render(v); }).catch((e) => fill(note(esc(e.message))));
         return;
       }
       if (!subs.some((x) => x.key === C.subject)) C.subject = subs[0]?.key || "trending";
-      live(() => get("browse", { subject: C.subject }), fill, id);
+      quick("browse", { subject: C.subject }, fill, id);
       return;
     }
     v.innerHTML = head + `<div id="ctBody">${note("Fetching what's new…")}</div>`;
-    live(() => get("promos", {}), fill, id);
+    quick("promos", {}, fill, id);
+  }
+  // a list: last time's at once (if there was one), then the computer's fresh one only if it's different
+  function quick(path, params, fill, id) {
+    const p = pathOf(path, params), old = kept(path, params);
+    let shownJson = "";
+    if (old && old.items && old.items.length) { fill(grid(old.items)); shownJson = JSON.stringify(old.items); }
+    if (shownJson && fresh[p] && Date.now() - fresh[p] < 600000) return;
+    live(() => get(path, params).then((r) => { fresh[p] = Date.now(); return r; }), fill, id, 0, shownJson);
   }
   // lists the computer is still filling in ("pending") are asked for again until they're done
-  async function live(fetcher, fill, id, n = 0) {
+  async function live(fetcher, fill, id, n = 0, same = "") {
     try {
       const r = await fetcher();
       if (id !== C.seq) return;
+      if (same && !r.pending && r.items && r.items.length && JSON.stringify(r.items) === same) return;      // (nothing new: the cards stay as they are)
+      if (same && !r.items?.length) return;
       fill(r.items.length ? grid(r.items) + (r.pending ? note("More arriving…") : "") : r.pending ? note("Fetching…") : note(r.error ? esc(r.error) : "Nothing here right now."));
       if (r.pending && n < 12) setTimeout(() => live(fetcher, fill, id, n + 1), 3500);
-    } catch (e) { fill(note(esc(e.message))); }
+    } catch (e) { if (!same) fill(note(esc(e.message))); }
+  }
+  // fetched ahead (after a sync), so the catalogue opens with its covers and lists already here
+  async function warm() {
+    for (const [path, params] of [["promos", {}], ["subjects", {}]]) {
+      const p = pathOf(path, params);
+      if (fresh[p] && Date.now() - fresh[p] < 600000) continue;
+      try { const r = await get(path, params); fresh[p] = Date.now();
+        for (const x of (r.items || []).slice(0, 18)) { const im = new Image(); im.src = coverSrc(x); } } catch (e) { return; }
+    }
   }
 
   async function info(r) {
@@ -151,5 +176,5 @@ const Catalogue = (() => {
   }
   // (the Bulletin's Hot Off the Press opens its posters here)
   const show = (r) => { if (!shown.includes(r)) shown = [r]; return info(r); };
-  return { render, byAuthor, show, want, coverSrc };
+  return { render, byAuthor, show, want, coverSrc, warm };
 })();

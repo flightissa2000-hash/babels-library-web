@@ -24,12 +24,16 @@ const NewsTab = (() => {
       <div class="nz-desks"><button data-nz-desk="science" class="${N.desk === "science" ? "on" : ""}">Science</button><button data-nz-desk="local" class="${N.desk === "local" ? "on" : ""}">Local</button></div></div>`;
     const fill = (html) => { if (id === N.seq && S.tab === "news") v.innerHTML = head + html; };
     if (N.desk === "science") {
-      if (!N.sci) { fill(note("The presses are rolling…")); try { N.sci = await api("GET", "/sync/news/science" + (N.fresh ? "?fresh=1" : "")); N.fresh = false; } catch (e) { return fill(note(esc(e.message))); } }
+      if (!N.sci && !N.fresh && Online.recall("/sync/news/science")) { N.sci = Online.recall("/sync/news/science"); N.sciAt = 0; }
+      if (N.sci && !N.fresh && (!N.sciAt || (N.sciAt > 1 && Date.now() - N.sciAt > 900000))) { N.sciAt = 1; api("GET", "/sync/news/science").then((d) => { const was = JSON.stringify(N.sci); N.sci = d; N.sciAt = Date.now(); if (JSON.stringify(d) !== was && S.tab === "news" && N.desk === "science" && $("#sheet").hidden) render(v); }).catch(() => { N.sciAt = 0; }); }
+      if (!N.sci) { fill(note("The presses are rolling…")); try { N.sci = await api("GET", "/sync/news/science" + (N.fresh ? "?fresh=1" : "")); N.fresh = false; N.sciAt = Date.now(); } catch (e) { return fill(note(esc(e.message))); } }
       shown = [];
       fill(`<div class="nz-where"><span>The <b>Science desk</b></span><button class="btn sm" data-nz-refresh>↻</button></div>` + N.sci.sections.map((s) => row(s.key, s.label, "", s.items)).join(""));
       return;
     }
-    if (!N.loc) { fill(note("Calling the newsroom…")); try { N.loc = await api("GET", "/sync/news/local" + (N.fresh ? "?fresh=1" : "")); N.fresh = false; } catch (e) { return fill(note(esc(e.message))); } }
+    if (!N.loc && !N.fresh && !N.moved && Online.recall("/sync/news/local")) { N.loc = Online.recall("/sync/news/local"); N.locAt = 0; }
+    if (N.loc && !N.fresh && (!N.locAt || (N.locAt > 1 && Date.now() - N.locAt > 900000))) { N.locAt = 1; api("GET", "/sync/news/local").then((d) => { const was = JSON.stringify(N.loc); N.loc = d; N.locAt = Date.now(); if (JSON.stringify(d) !== was && S.tab === "news" && N.desk === "local" && $("#sheet").hidden && !N.editing) render(v); }).catch(() => { N.locAt = 0; }); }
+    if (!N.loc) { fill(note("Calling the newsroom…")); try { N.loc = await api("GET", "/sync/news/local" + (N.fresh ? "?fresh=1" : "")); N.fresh = false; N.moved = false; N.locAt = Date.now(); } catch (e) { return fill(note(esc(e.message))); } }
     const p = N.loc.place;
     if (!p.county || N.editing) {
       fill(`<form class="panel nz-place" id="nzPlace"><h3>Where's home?</h3><p class="hint">Your county and state: you'll get things to do around town, the county board, the city council, the statehouse and the national news.</p>
@@ -90,7 +94,7 @@ const NewsTab = (() => {
     b.disabled = true; b.textContent = "Finding your county…";
     try {
       await api("POST", "/sync/news/place", { county: f.county.value, state: f.state.value, city: f.city.value, country: f.country.value });
-      N.editing = false; N.loc = null; render($("#view"));
+      N.editing = false; N.loc = null; N.locAt = 0; N.moved = true; render($("#view"));
     } catch (err) { b.disabled = false; b.textContent = "Start delivery"; toast(err.message); }
   });
   return { render, read };

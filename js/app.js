@@ -30,7 +30,7 @@ function load(name, fallback) { try { const t = A ? A.load(name) : localStorage.
 function store(name, obj) { const t = JSON.stringify(obj); if (A) A.save(name, t); else try { localStorage.setItem(name, t); } catch (e) {} }
 function saveState() {
   store("state.json", { conn: S.conn, since: S.since, lastSync: S.lastSync, theme: S.theme, themeChoice: S.themeChoice, autoGet: S.autoGet, downloads: S.downloads,
-    readMode: S.readMode, search: S.search, nav: S.nav, eink: S.eink, jstyle: S.jstyle, tabsOff: S.tabsOff, blayout: S.blayout, bsecond: S.bsecond, bhome: S.bhome,
+    readMode: S.readMode, search: S.search, nav: S.nav, eink: S.eink, jstyle: S.jstyle, tabsOff: S.tabsOff, blayout: S.blayout, bsecond: S.bsecond, bhome: S.bhome, dexMode: S.dexMode, dexScale: S.dexScale, bulletinPeriod: S.bulletinPeriod,
     area: S.area, kind: S.kind, libLayout: S.libLayout, groupBy: S.groupBy, groupByArea: S.groupByArea, sort: S.sort, coll: S.coll, readFont: S.readFont, readGap: S.readGap });
 }
 /* ---------------------------------------------------------------- profiles
@@ -344,8 +344,25 @@ async function checkExpiring() {
 
 /* ---------------------------------------------------------------- theme */
 /* Samsung DeX, or a big screen with a mouse (not the iPhone/iPad app): the computer's layout */
-const isDex = () => { try { if (A && A.isDex && A.isDex()) return true; } catch (e) {} return !WEB && innerWidth >= 1000 && matchMedia("(pointer: fine)").matches; };
-addEventListener("resize", () => { const d = isDex(); if (d !== document.documentElement.classList.contains("dex")) { document.documentElement.classList.toggle("dex", d); if (S.tab === "library") render(); } });
+const isDex = () => { if (window.FORCE_DEX || S.dexMode === "on") return true; if (S.dexMode === "off") return false; try { if (A && A.isDex && A.isDex()) return true; } catch (e) {} return !WEB && viewSize()[0] >= 1000 && matchMedia("(pointer: fine)").matches; };
+/* the window in dp (not CSS pixels: on DeX the page is scaled up, so its own width is smaller) */
+const viewSize = () => { try { const v = A && A.viewDp && A.viewDp(); if (v) { const [w, h] = v.split("x").map(Number); if (w > 0 && h > 0) return [w, h]; } } catch (e) {} return [innerWidth * (fitDex.k || 1), innerHeight * (fitDex.k || 1)]; };
+/* DeX on a monitor: the app is drawn bigger as its window grows (a 1080p monitor at the phone's own size reads like small
+   print), sized so the page is about 1280 × 760 of its own pixels, never smaller than the phone's scale */
+function fitDex() {
+  const dex = isDex(), [w, h] = viewSize();
+  // (auto: about 1100 × 640 of the page's own pixels; or the size picked in Settings → Look)
+  const k = !dex ? 1 : S.dexScale > 0 ? Math.max(.75, Math.min(2.5, S.dexScale)) : Math.max(1, Math.min(2, Math.min(w / 1100, h / 640)));
+  const want = k === 1 ? "width=device-width, initial-scale=1, viewport-fit=cover"
+    : `width=${Math.round(w / k)}, initial-scale=${k.toFixed(3)}, minimum-scale=${k.toFixed(3)}, maximum-scale=${k.toFixed(3)}, user-scalable=no, viewport-fit=cover`;
+  const meta = document.querySelector("meta[name=viewport]");
+  if (meta && meta.content !== want) meta.content = want;
+  if (fitDex.k !== k) { fitDex.k = k; try { A && A.setZoom && A.setZoom(k); } catch (e) {} }
+  document.documentElement.classList.toggle("dex", dex);
+  document.documentElement.classList.toggle("dex-narrow", dex && w / k < 1100);
+  return dex;
+}
+addEventListener("resize", () => { const was = document.documentElement.classList.contains("dex"); clearTimeout(fitDex.t); fitDex.t = setTimeout(() => { const d = fitDex(); if (d !== was && S.tab === "library") render(); if (S.tab === "browser" && window.placeBrowser) placeBrowser(); }, 120); });
 /* the e-reader theme (phone only): black on white with no motion, picked by itself when E-reader mode is switched on */
 if (window.THEMES && !THEMES.eink) THEMES.eink = { name: "E-reader", inspired: "e-ink screens", swatch: ["#ffffff", "#000000", "#777777"],
   spines: ["#222222", "#555555", "#888888", "#3a3a3a", "#6e6e6e", "#9a9a9a"], reader: { bg: "#ffffff", ink: "#000000", font: "Georgia, serif" }, pageTint: "" };
@@ -355,7 +372,7 @@ function applyTheme() {
   if (!NAVS.some((n) => n[0] === S.nav)) S.nav = "folders";
   if (!JSTYLES.some((n) => n[0] === S.jstyle)) S.jstyle = "list";
   document.documentElement.dataset.nav = S.nav;
-  document.documentElement.classList.toggle("dex", isDex());
+  fitDex();
   document.documentElement.dataset.jstyle = S.jstyle;
   if (!BLAYOUTS.some((b) => b[0] === S.blayout)) S.blayout = "standard";
   document.documentElement.classList.toggle("tabs-off", !!S.tabsOff);
@@ -544,6 +561,11 @@ function sync(force) {
       setTimeout(checkExpiring, 1500);
       await fetchSent(d.queue || []);
       refreshCopies();
+      // the catalogue and the News fetched ahead, a little after a sync (at most every half hour), so they open at once
+      if (now() - (sync.warmed || 0) > 1800) { sync.warmed = now(); setTimeout(async () => {
+        try { await Catalogue.warm(); } catch (e) {}
+        for (const p of ["/sync/news/science", "/sync/news/local"]) { try { await api("GET", p); } catch (e) { break; } }
+      }, 5000); }
     } catch (e) {
       S.syncError = e.offline ? "offline" : e.message;
       if (e.status === 401) { S.syncError = "This phone was unpaired on the computer. Pair it again in Settings."; }
@@ -565,6 +587,7 @@ function merge(d, made = {}) {
   const localLogs = S.log.filter((l) => String(l.id).startsWith("c:") && pendingCids.has(String(l.id).slice(2)));
   for (const [id, e] of Object.entries(S.journal)) if (String(id).startsWith("c:") && (made[id.slice(2)] || !pendingCids.has(id.slice(2)))) delete S.journal[id];
   if (d.log) S.log = d.log.concat(localLogs);
+  Journal.remap(made);
   for (const x of d.deleted || []) {
     if (x.kind === "journal") delete S.journal[x.ref_id];
     if (x.kind === "log") {
@@ -590,6 +613,7 @@ function merge(d, made = {}) {
   if (d.theme) { S.theme = d.theme; applyTheme(); }
   S.since = d.now;
   if (d.profiles) Prof.fromServer(d.profiles, d.profile);
+  if (d.bulletin_period && d.bulletin_period !== S.bulletinPeriod) { S.bulletinPeriod = d.bulletin_period; saveState(); }
   if (d.bulletin && d.bulletin.week) Bulletin.fromServer(d.bulletin);
   if (Array.isArray(d.bookmarks) && A && A.setBookmarks) syncBookmarks(d.bookmarks);
   Prof.apply();          // (what just arrived is the computer's progress: another profile's goes back on top)
@@ -819,6 +843,7 @@ function setTab(t) {
 }
 function render() {
   if (window.Widget) Widget.update();       // (the home-screen widget, when what it shows changed)
+  document.documentElement.dataset.tab = S.tab; document.documentElement.dataset.area = S.area || "books";     // (the Galaxy theme's photo for each tab)
   const v = $("#view");
   const items = Object.values(S.items).filter((i) => !isCopy(i));
   if (!S.conn.token && S.tab !== "settings") {
@@ -1040,6 +1065,7 @@ const W = {
     const j = l ? l.status || (l.finished ? "finished" : "") : "", p = pct(it);
     if (j === "hold") return ["hold", "On hold"];
     if (j === "dropped") return ["dropped", "Dropped"];
+    if (j === "next" && !it.watched && p < 98) return ["next", "Up next"];
     if (it.kind === "tv" || it.kind === "movie") return it.watched || p >= 98 ? ["done", "Watched"] : p > 0 ? ["now", "Now showing"] : ["new", "Not started"];
     if (j === "finished" || p >= 98) return ["done", "Finished"];
     if (j === "reading" || p > 0) return ["now", "Reading"];
@@ -1099,6 +1125,10 @@ function swapHtml() {
 const Bulletin = (() => {
   const DAY = 86400;
   const weekStart = () => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime() / 1000; };
+  // the challenge lasts a week or a month, per profile (set on the computer or in Settings here, synced); the rest stays weekly
+  const monthly = () => S.bulletinPeriod === "month";
+  const periodStart = () => { if (!monthly()) return weekStart(); const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).getTime() / 1000; };
+  const word = () => monthly() ? "month" : "week";
   const rng = (seed) => { let a = 0; for (const c of String(seed)) a = (a * 31 + c.charCodeAt(0)) >>> 0; return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
   const shuffle = (list, r) => { const a = [...list]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const file = () => `challenge-${Prof.cur}.json`;
@@ -1126,7 +1156,7 @@ const Bulletin = (() => {
     return [f, W.status(f)[0] === "now" ? "finish" : "start"];
   }
   function challenge(reroll = false) {
-    const wk = weekStart(), cur = load(file(), null);
+    const wk = periodStart(), cur = load(file(), null);
     const ci = cur && S.items[cur.id];
     if (cur && cur.week === wk && !reroll && ci && (cur.type === "revisit" || W.status(ci)[0] === "done" || firstUnread(ci) === ci)) return cur;
     const r = rng(Prof.cur + wk + ":" + ((cur && cur.week === wk ? cur.draw : 0) + (reroll ? 1 : 0)));
@@ -1160,21 +1190,21 @@ const Bulletin = (() => {
     const issue = Math.max(1, Math.round((wk - Date.UTC(2026, 0, 5) / 1000) / (7 * DAY)) + 1);
     const ch = it ? { it, c, ok: done(c, it), p: pct(it), finish: c.type === "finish", start: c.type === "start", ago: Math.round((now() - finishedAt(it)) / (30 * DAY)) } : null;
     const hook = (x) => x.ok ? (x.finish ? "Done and dusted. Challenge complete." : "Revisited. Challenge complete.")
-      : x.finish ? `${x.p}% of the way. One week to cross the finish line.` : x.start ? "Still in the wrapper. This is the week to open it." : `Last read ${x.ago} months ago. Time for a second look?`;
+      : x.finish ? `${x.p}% of the way. One ${word()} to cross the finish line.` : x.start ? `Still in the wrapper. This is the ${word()} to open it.` : `Last read ${x.ago} months ago. Time for a second look?`;
     const head = (x) => x.ok ? "MISSION ACCOMPLISHED" : x.finish ? "THE FINAL STRETCH" : x.start ? "FIRST PAGE" : "THE RETURN";
     const go = (x) => x.ok ? "" : `<button class="btn primary" data-bt-go="${x.it.id}">${isVideo(x.it) ? "▶ Watch it" : x.finish ? "Finish it" : x.start ? "Start it" : "Read it again"}</button>`;
     const by = (x) => [W.kindName(x), byline(x)].filter(Boolean).join(" · ");
     return `<div class="btm">
       <section class="btm-cover ${ch && ch.ok ? "done" : ""}">${ch ? `<div class="btm-bg">${cover(ch.it, false)}</div>` : ""}<div class="btm-sheen"></div>
-        <div class="btm-title"><b>BABEL</b><span>Issue ${issue}<br>${esc(when)}</span></div>
+        <div class="btm-title"><b>BABEL</b><span><i>Issue ${issue}</i><i>${esc(when)}</i></span></div>
         <div class="btm-ribbon">EXCLUSIVE</div>
         ${ch ? `<div class="btm-burst">${ch.ok ? "DONE!" : ch.finish ? `${ch.p}%<small>there</small>` : ch.start ? "NEW!" : "AGAIN?"}</div>
         <div class="btm-hero" data-item="${ch.it.id}">${cover(ch.it, false)}${ch.ok ? `<span class="bt-stamp">✓<b>Done!</b></span>` : ""}</div>
-        <div class="btm-lines"><small>${ch.finish ? "THIS WEEK'S CHALLENGE" : ch.start ? "THE DEBUT ISSUE" : "THE REVISIT ISSUE"}</small><em>${head(ch)}</em><h2>${esc(W.title(ch.it))}</h2>
+        <div class="btm-lines"><small>${ch.finish ? `THIS ${word().toUpperCase()}'S CHALLENGE` : ch.start ? "THE DEBUT ISSUE" : "THE REVISIT ISSUE"}</small><em>${head(ch)}</em><h2>${esc(W.title(ch.it))}</h2>
           <p class="btm-by">${esc(by(ch.it))}</p><p class="btm-hook">${esc(hook(ch))}</p>
           ${ch.finish && !ch.ok ? `<div class="btm-meter"><i style="width:${ch.p}%"></i></div>` : ""}
           <div class="btns">${go(ch)}<button class="btn" data-bt-reroll>Pick another</button></div></div>`
-        : `<div class="btm-lines"><em>COMING SOON</em><h2>Your next obsession</h2><p class="btm-hook">Start something and next week's challenge will be to finish it.</p></div>`}
+        : `<div class="btm-lines"><em>COMING SOON</em><h2>Your next obsession</h2><p class="btm-hook">Start something and next ${word()}'s challenge will be to finish it.</p></div>`}
         <div class="btm-barcode"><i></i><span>0 ${String(issue).padStart(5, "0")} 42</span></div></section>
       <figure class="btm-potd" id="btPotd" hidden></figure>
       <section class="btm-sec btm-hot"><header><small>FROM THE CATALOGUE</small><h3>Hot Off the Press</h3><p>This week's most talked-about finds you don't own yet</p></header>
@@ -1278,27 +1308,36 @@ window.Widget = (() => {
   function data() {
     const cs = getComputedStyle(document.documentElement), c = (v) => hex(cs.getPropertyValue(v));
     const theme = { bg: c("--bg"), surface: c("--surface"), ink: c("--ink"), soft: c("--ink-soft"), accent: c("--accent") };
-    const all = Object.values(S.items), opened = all.filter((i) => i.opened_at && i.kind !== "music").sort((a, b) => b.opened_at - a.opened_at);
-    const it = opened[0];
+    const all = Object.values(S.items);
+    /* a reading copy is shown as its book (its title and cover); the place and the tap are the version read last */
+    const origOf = (x) => { if (!isCopy(x)) return x; const o = S.items[String(x.source).slice("reading-copy:".length)]; return o || x; };
+    const seen = new Set(), opened = [];
+    for (const v of all.filter((i) => i.opened_at && i.kind !== "music").sort((a, b) => b.opened_at - a.opened_at)) {
+      const o = origOf(v);
+      if (seen.has(o.id)) continue;
+      seen.add(o.id);
+      opened.push({ v, o });
+    }
+    const first = opened[0];
     let item = null;
-    if (it) {
-      const p = pct(it), st = W.status(it)[0];
-      item = { id: it.id, title: W.title(it).trim(), by: byline(it), pct: p, has_cover: !!it.has_cover, cover_v: String(it.cover_v || 0), color: colorFor(it),
+    if (first) {
+      const it = first.v, o = first.o, p = pct(it), st = W.status(it)[0];
+      item = { id: it.id, cover_id: o.id, title: W.title(o).trim(), by: byline(o), pct: p, has_cover: !!o.has_cover, cover_v: String(o.cover_v || 0), color: colorFor(o),
         label: st === "done" ? "FINISHED" : `CONTINUE ${isVideo(it) ? "WATCHING" : "READING"}`,
         note: it.watched ? "Finished" : p ? `${p}% · ${ago(it.opened_at)}` : `Opened ${ago(it.opened_at)}` };
     }
     const ch = load(Bulletin.file(), null), ci = ch && S.items[ch.id];
-    const challenge = ci ? { id: ci.id, text: (Bulletin.done(ch, ci) ? "✓ Challenge complete: " : `This week: ${ch.type === "finish" ? "finish" : ch.type === "start" ? "start" : "revisit"} `) + W.title(ci) } : null;
+    const challenge = ci ? { id: ci.id, text: (Bulletin.done(ch, ci) ? "✓ Challenge complete: " : `This ${S.bulletinPeriod === "month" ? "month" : "week"}: ${ch.type === "finish" ? "finish" : ch.type === "start" ? "start" : "revisit"} `) + W.title(ci) } : null;
     // (the big widget) the next few opened, and a tally
-    const recent = opened.slice(1, 5).map((x) => {
+    const recent = opened.slice(1, 5).map(({ v: x, o }) => {
       const p = pct(x);
-      return { id: x.id, title: W.title(x).trim(), by: [byline(x), ago(x.opened_at)].filter(Boolean).join(" · "), pct: p, short: x.watched || p >= 98 ? "✓" : p ? p + "%" : "new",
-        has_cover: !!x.has_cover, cover_v: String(x.cover_v || 0), color: colorFor(x) };
+      return { id: x.id, cover_id: o.id, title: W.title(o).trim(), by: [byline(o), ago(x.opened_at)].filter(Boolean).join(" · "), pct: p, short: x.watched || p >= 98 ? "✓" : p ? p + "%" : "new",
+        has_cover: !!o.has_cover, cover_v: String(o.cover_v || 0), color: colorFor(o) };
     });
     const yr = new Date().getFullYear(), since = new Date(yr, 0, 1).getTime() / 1000;
     const doneYr = Prof.isMain() ? S.log.filter((l) => l.finished && Date.parse(l.finished) / 1000 >= since).length
       : all.filter((x) => (x.watched_at || 0) >= since).length;
-    const going = all.filter((x) => x.has_file && x.kind !== "music" && W.status(x)[0] === "now").length, here = all.filter(onPhone).length;
+    const going = all.filter((x) => x.has_file && x.kind !== "music" && !isCopy(x) && W.status(x)[0] === "now").length, here = all.filter((x) => !isCopy(x) && hereAny(x)).length;
     const stats = [going && `📖 ${going} reading`, `✓ ${doneYr} finished in ${yr}`, here && `📱 ${here} on phone`].filter(Boolean).join("  ·  ");
     return { theme, item, challenge, recent, stats };
   }
@@ -1311,10 +1350,14 @@ window.Widget = (() => {
     }, 800);
   }
   // a tap on the widget: open the thing (on the phone: the reader; otherwise its card), or the Bulletin
+  // (the id is the version read last: the original or its reading copy, opened as it is, without asking which)
   function open(id) {
     const it = S.items[id];
     if (!it) return setTab("home");
-    if (hereAny(it)) readHere(it); else openSheet(it.id);
+    const orig = isCopy(it) ? S.items[String(it.source).slice("reading-copy:".length)] || it : it;
+    if (onPhone(it)) return Reader.start(it);
+    if (hereAny(orig)) return readHere(orig);
+    openSheet(orig.id);
   }
   function tab(t) {
     if (t === "bulletin") { W.tab = "bulletin"; store("hometab.json", W.tab); }
@@ -1628,11 +1671,31 @@ function renderSettings(v) {
       <label class="check"><input type="checkbox" id="newsAlerts" ${A && A.newsAlerts && A.newsAlerts() ? "checked" : ""}> Notify me when a new event turns up in the News “Events” section</label>
       <p class="hint">${WEB ? "Works when this app is on your Home Screen (in Safari: Share → Add to Home Screen, then open it from there). The computer looks every few hours and sends the notification; tap it to share or open the event." : "The computer looks every few hours; the phone checks in about once an hour and needs to reach the computer (home Wi-Fi, or “Reach this library from anywhere”). Each notification has Share and Open."}</p></div>
     ${window.PageKeys ? PageKeys.panel() : ""}
+    ${WEB || !A || !A.siteLimits ? "" : (() => {
+      let sl = { limits: {}, used: {} };
+      try { sl = JSON.parse(A.siteLimits()); } catch (e) {}
+      const fmt = (m) => m >= 60 && m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
+      const rows = Object.entries(sl.limits || {}).map(([d, m]) => { const u = Math.round(((sl.used || {})[d] || 0) / 60);
+        return `<div class="row" style="align-items:center;gap:8px;margin:6px 0"><b style="flex:1">${esc(d)}</b><span class="hint">${fmt(u)} of ${fmt(m)} today</span><button class="btn" data-limit-off="${esc(d)}" aria-label="Remove the limit">✕</button></div>`; }).join("");
+      return `<div class="panel"><h3>Browser time limits</h3>
+        ${rows || `<p class="hint">No limits yet.</p>`}
+        <input id="limSite" placeholder="Website, like youtube.com" style="display:block;width:100%;box-sizing:border-box;margin-top:8px" autocapitalize="off" autocorrect="off" inputmode="url">
+        <div class="row" style="gap:8px;align-items:center;margin-top:8px">
+          <select id="limMin" style="flex:1">${[15, 30, 45, 60, 90, 120, 180].map((m) => `<option value="${m}" ${m === 60 ? "selected" : ""}>${fmt(m)}</option>`).join("")}</select>
+          <button class="btn primary" data-limit-add>Add</button></div>
+        <p class="hint">A day's time on a website in the browser: it counts while the site is on screen or playing, and when it runs out the site closes until midnight.</p></div>`; })()}
+    <div class="panel"><h3>The Bulletin</h3>
+      <div class="chips"><b class="chip-lbl">Challenge lasts</b>${[["week", "A week"], ["month", "A month"]].map(([k, n]) => `<button data-bperiod="${k}" class="${(S.bulletinPeriod || "week") === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      <p class="hint">For this profile only, here and on the computer. A month starts on the 1st, a week on Monday.</p></div>
     <div class="panel"><h3>Look</h3>
       <label class="check"><input type="checkbox" id="einkOn" ${S.eink ? "checked" : ""}> E-reader mode <small class="hint">(for e-ink screens: switches to the E-reader theme, with no animations or shadows)</small></label>
       <div class="field"><label for="themeSel">Theme</label><select id="themeSel"><option value="auto">Same as the computer</option>${Object.entries(window.THEMES || {}).map(([k, t]) => `<option value="${k}">${esc(t.name)}</option>`).join("")}</select></div>
       <h4 class="pick-h">Getting around <small>how you switch between Home, Library, Catalogue…</small></h4>
       <div class="pick-grid">${NAVS.map(([k, n, d, zany]) => `<button class="pick ${S.nav === k ? "on" : ""} ${zany ? "zany" : ""}" data-nav-pick="${k}"><i class="pk pk-${k}"></i><b>${n}</b><small>${d}</small></button>`).join("")}</div>
+      ${WEB ? "" : `<h4 class="pick-h">Big screens <small>Samsung DeX, or a tablet with a mouse</small></h4>
+      <div class="chips"><b class="chip-lbl">Desktop layout</b>${[["auto", "Auto"], ["on", "On"], ["off", "Off"]].map(([k, n]) => `<button data-dexmode="${k}" class="${(S.dexMode || "auto") === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      <div class="chips"><b class="chip-lbl">Size</b>${[[0, "Auto"], [1, "100%"], [1.25, "125%"], [1.5, "150%"], [1.75, "175%"], [2, "200%"]].map(([k, n]) => `<button data-dexscale="${k}" class="${(+S.dexScale || 0) === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      <p class="hint">${(() => { const [w, h] = viewSize(); let info = ""; try { info = A.screenInfo ? A.screenInfo() : ""; } catch (e) {} return `This window: ${w} × ${h}. ${isDex() ? `Desktop layout on, drawn at ${Math.round((fitDex.k || 1) * 100)}%.` : "Phone layout."}${info ? ` <small>(${esc(info)})</small>` : ""}`; })()}</p>`}
       <h4 class="pick-h">Journal style</h4>
       <div class="pick-grid three">${JSTYLES.map(([k, n, d]) => `<button class="pick ${S.jstyle === k ? "on" : ""}" data-jstyle-pick="${k}"><i class="pk pk-j-${k}"></i><b>${n}</b><small>${d}</small></button>`).join("")}</div></div>
     <p class="hint" style="text-align:center">Babel's Library for ${WEB ? "iPhone & iPad" : "Android"} 1.0${S.ops.length ? ` · ${S.ops.length} change${S.ops.length === 1 ? "" : "s"} waiting to send` : ""}</p>`;
@@ -1700,7 +1763,7 @@ function openSheet(id) {
   const p = pct(it);
   sh.innerHTML = `<div class="sheet-bar"><button class="back" data-close>‹</button><h2>${esc(it.title)}</h2></div>
     <div class="it-head">${cover(it)}<div><h3>${esc(it.title || "Untitled")}</h3><p>${esc(byline(it))}</p><p>${esc(meta)}</p>
-      <div class="big-p"><i style="width:${p}%"></i></div><small class="hint">${it.watched ? "Finished" : p ? p + "% · " + (it.opened_at ? ago(it.opened_at) : "") : "Not started"}</small></div></div>
+      <div class="big-p"><i style="width:${p}%"></i></div><small class="hint">${it.watched ? "Finished" : p ? p + "% · " + (it.opened_at ? ago(it.opened_at) : "") : "Not started"}</small>${Prof.isMain() && S.conn.token ? `<small class="hint it-covhint">Hold the cover to change it</small>` : ""}</div></div>
     <div class="it-body">
       <div class="btns">
         ${here ? `<button class="btn primary" data-open="${it.id}">▶ ${verb(it)}</button>` : ""}
@@ -1715,10 +1778,11 @@ function openSheet(id) {
         ${!it.has_file ? `<button class="btn sm" data-wish="${it.id}">${it.wanted ? "Remove from wishlist" : "Add to wishlist"}</button>` : ""}
         ${here ? `<button class="btn sm" data-with="${mine.id}">Open in another app</button><button class="btn sm danger" data-remove="${mine.id}">Remove ${rc && onPhone(it) && onPhone(rc) ? "the original " : ""}from phone</button>${rc && onPhone(it) && onPhone(rc) ? `<button class="btn sm danger" data-remove="${rc.id}">Remove the reading copy</button>` : ""}` : ""}
       </div>
+      ${stPick(it, log)}
       ${it.summary ? `<p class="sum">${esc(it.summary)}</p>` : ""}
       ${(it.authors || [])[0] && ["book", "graphic"].includes(it.kind) ? `<div class="btns"><button class="btn sm" data-ct-author="${esc(it.authors[0])}" data-ct-kind="${it.kind === "graphic" ? (it.format === "manga" ? "manga" : "comic") : "book"}">${it.kind === "graphic" ? "More from this author" : "All releases by " + esc(it.authors[0])}</button></div>` : ""}
       <h3 style="margin-top:16px">Your review</h3>
-      ${log ? `<p class="hint">${[log.status && log.status !== "finished" ? { reading: "Reading", hold: "On hold", dropped: "Dropped" }[log.status] : "", log.finished ? "Finished " + log.finished : "", log.kind === "movie" && log.score != null ? `${+log.score}/10` : ""].filter(Boolean).map(esc).join(" · ")}</p>
+      ${log ? `<p class="hint">${[log.status && log.status !== "finished" ? { reading: isVideo(it) ? "Watching" : "Reading", next: "Up next", hold: "On hold", dropped: "Dropped" }[log.status] : "", log.finished ? "Finished " + log.finished : "", log.kind === "movie" && log.score != null ? `${+log.score}/10` : ""].filter(Boolean).map(esc).join(" · ")}</p>
         ${entries.map((j) => `<div class="note">${esc(j.body)}</div>`).join("")}` : ""}
       <div class="btns"><button class="btn sm" data-journal="${it.id}">✎ ${log ? "Open in journal" : "Write a review"}</button></div>
       ${notes.length ? `<h3 style="margin-top:16px">Notes and highlights (${notes.length})</h3>${notes.map((a) => `<div class="note">${a.quote ? `<q>${esc(a.quote)}</q>` : ""}${esc(a.note || a.title || "")}</div>`).join("")}` : ""}
@@ -1729,6 +1793,91 @@ function openSheet(id) {
   sh.scrollTop = 0;
   if (dl) watchDownloads();
   if (S.conn.token) fullDetails(it.id);
+}
+/* a new cover for an item: hold its cover on its page. Search posters and book covers by its title, paste a picture's
+   address, or use a photo from the phone; the computer keeps it (and every device gets it on its next sync). */
+function itemCoverPicker(it) {
+  if (!S.conn.token) return toast("Changing a cover needs the computer");
+  const kind = it.kind === "movie" ? "movie" : it.kind === "tv" ? "show" : "book";
+  const q0 = [it.kind === "tv" ? it.series || it.title : it.title, ["book", "graphic"].includes(it.kind) ? (it.authors || [])[0] || "" : ""].filter(Boolean).join(" ");
+  const w = document.createElement("div");
+  w.className = "keep-ask j-cpick";
+  w.innerHTML = `<div class="ka-card" role="dialog"><h3>A new cover for “${esc(it.title || "")}”</h3>
+    <form class="j-cp-row" data-cps><input name="q" value="${esc(q0)}" placeholder="search for it…" autocomplete="off"><button class="btn primary">Search</button></form>
+    <div class="j-cp-grid"><p class="hint">Looking…</p></div>
+    <form class="j-cp-row" data-cpu><input name="u" inputmode="url" placeholder="or paste a picture's web address" autocomplete="off"><button class="btn">Use</button></form>
+    <div class="ka-row"><label class="btn">📷 A picture on this phone<input type="file" accept="image/*" hidden></label><button class="btn" data-x>Cancel</button></div></div>`;
+  const grid = w.querySelector(".j-cp-grid");
+  let found = [];
+  const search = async (q) => {
+    grid.innerHTML = `<p class="hint">Looking…</p>`;
+    try { found = await api("GET", `/sync/log/covers?kind=${kind}&q=${encodeURIComponent(q)}`); }
+    catch (e) { grid.innerHTML = `<p class="hint">${esc(e.offline ? "Changing a cover needs the computer." : e.message)}</p>`; return; }
+    grid.innerHTML = found.length ? found.map((c, i) => `<button class="j-cp-hit" data-cp="${i}"><img loading="lazy" alt="" src="${esc(c.img)}" onerror="this.closest('button').remove()"><b>${esc(c.title)}</b><small>${esc(c.sub || "")}</small></button>`).join("")
+      : `<p class="hint">Nothing found. Try other words, or paste a picture's address.</p>`;
+  };
+  const choose = async (body) => {
+    w.querySelector(".ka-card").classList.add("busy");
+    try {
+      const r = await api("POST", `/sync/item/${it.id}/coverpick`, body);
+      if (r.item) Object.assign(S.items[it.id], { has_cover: r.item.has_cover, cover_v: r.item.cover_v, cover_path: r.item.cover_path });
+      saveLibrary(true);
+      w.remove();
+      toast("Cover changed");
+      if (S.sheetId === it.id && !$("#sheet").hidden) openSheet(it.id);
+      sync();
+    } catch (e) { w.querySelector(".ka-card").classList.remove("busy"); toast(e.offline ? "Changing a cover needs the computer" : e.message); }
+  };
+  w.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (e.target.matches("[data-cps]")) search(e.target.q.value.trim());
+    else if (e.target.u.value.trim()) choose({ url: e.target.u.value.trim() });
+  });
+  w.addEventListener("click", (e) => {
+    const h = e.target.closest("[data-cp]");
+    if (h) return choose({ url: found[Number(h.dataset.cp)].img });
+    if (e.target.closest("[data-x]") || e.target === w) w.remove();
+  });
+  w.querySelector("input[type=file]").addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const img = new Image(), url = URL.createObjectURL(f);
+    img.onload = () => {
+      const k = Math.min(1, 1200 / img.width), c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      choose({ data: c.toDataURL("image/jpeg", 0.9) });
+    };
+    img.onerror = () => toast("That picture couldn't be opened");
+    img.src = url;
+  });
+  document.body.append(w);
+  search(q0);
+}
+// hold an item's cover on its page (half a second) to choose another
+document.addEventListener("pointerdown", (e) => {
+  const c = e.target.closest?.("#sheet .it-head .cov");
+  if (!c || !S.sheetId) return;
+  const id = S.sheetId, x = e.clientX, y = e.clientY;
+  let timer = setTimeout(() => { timer = 0; c.classList.remove("holding"); if (navigator.vibrate) navigator.vibrate(15); itemCoverPicker(S.items[id]); }, 550);
+  c.classList.add("holding");
+  const stop = (ev) => {
+    if (ev.type === "pointermove" && Math.hypot(ev.clientX - x, ev.clientY - y) < 10) return;
+    clearTimeout(timer); c.classList.remove("holding");
+    document.removeEventListener("pointerup", stop, true); document.removeEventListener("pointercancel", stop, true); document.removeEventListener("pointermove", stop, true);
+  };
+  document.addEventListener("pointerup", stop, true); document.addEventListener("pointercancel", stop, true); document.addEventListener("pointermove", stop, true);
+});
+document.addEventListener("contextmenu", (e) => { if (e.target.closest?.("#sheet .it-head .cov")) e.preventDefault(); });
+/* where you are with it: a row of stamps (the journal's status, the same as the computer's); tap one to set it */
+function stPick(it, log) {
+  if (!Prof.isMain() || it.kind === "music") return "";
+  const cur = log ? log.status || (log.finished ? "finished" : "") : "";
+  const name = { reading: isVideo(it) ? "Watching" : "Reading", next: "Up next", finished: isVideo(it) ? "Watched" : "Finished", hold: "On hold", dropped: "Dropped" };
+  const icon = { next: "⏭", reading: isVideo(it) ? "▶" : "📖", finished: "✓", hold: "⏸", dropped: "✕" };
+  return `<div class="st-pick" role="radiogroup" aria-label="Status">${["next", "reading", "finished", "hold", "dropped"].map((k) =>
+    `<button class="st-p st-${k}${cur === k ? " on" : ""}" role="radio" aria-checked="${cur === k}" data-stset="${k}" data-id="${it.id}"><i>${icon[k]}</i><span>${name[k]}</span></button>`).join("")}</div>`;
 }
 /* "More from": the rest of its series on your shelves first; otherwise more by the same author or director */
 function kinHtml(it) {
@@ -1987,6 +2136,22 @@ document.addEventListener("click", (e) => {
   if (t.closest("#navScrim")) { document.body.classList.remove("nav-open"); return placeBrowser(); }
   const tab = t.closest("#tabs [data-tab]"); if (tab) { document.body.classList.remove("nav-open"); return setTab(tab.dataset.tab); }
   const np = t.closest("[data-nav-pick]"); if (np) { S.nav = np.dataset.navPick; saveState(); applyTheme(); return render(); }
+  const dm = t.closest("[data-dexmode]"); if (dm) { S.dexMode = dm.dataset.dexmode; saveState(); applyTheme(); return render(); }
+  if (t.closest("[data-limit-add]")) {
+    const site = ($("#limSite").value || "").trim(), m = +$("#limMin").value || 60;
+    if (!site) { toast("Type a website, like youtube.com"); return; }
+    A.setSiteLimit(site, m); toast(`${site} now has ${m >= 60 && m % 60 === 0 ? m / 60 + " h" : m + " min"} a day`); return render();
+  }
+  const lo = t.closest("[data-limit-off]");
+  if (lo) { A.setSiteLimit(lo.dataset.limitOff, 0); toast(`Limit taken off ${lo.dataset.limitOff}`); return render(); }
+  const bp = t.closest("[data-bperiod]");
+  if (bp) {
+    const p = bp.dataset.bperiod;
+    S.bulletinPeriod = p; saveState(); render();
+    if (S.conn.token && Prof.server) api("POST", "/sync/bulletin/period", { period: p }).then(() => toast(p === "month" ? "The challenge now lasts a month" : "The challenge now lasts a week")).catch((e) => toast("Saved on this phone; the computer couldn't be reached: " + e.message));
+    return;
+  }
+  const dsc = t.closest("[data-dexscale]"); if (dsc) { S.dexScale = +dsc.dataset.dexscale; saveState(); applyTheme(); setTimeout(render, 250); return render(); }
   const jp = t.closest("[data-jstyle-pick]"); if (jp) { S.jstyle = jp.dataset.jstylePick; saveState(); applyTheme(); return render(); }
   const go = t.closest("[data-go]"); if (go) return setTab(go.dataset.go);
   if (t.closest("#syncPill")) { if (S.conn.token) { sync(); toast("Syncing…"); } else setTab("settings"); return; }
@@ -2021,6 +2186,14 @@ document.addEventListener("click", (e) => {
   const fav = t.closest("[data-fav]"); if (fav) { const it = S.items[fav.dataset.fav]; change(it.id, { favorite: it.favorite ? 0 : 1 }); return openSheet(it.id); }
   const wish = t.closest("[data-wish]"); if (wish) { const it = S.items[wish.dataset.wish]; change(it.id, { wanted: it.wanted ? 0 : 1 }); return openSheet(it.id); }
   const wa = t.closest("[data-watched]"); if (wa) { const it = S.items[wa.dataset.watched]; change(it.id, it.watched ? { watched: 0 } : { watched: 1, watched_at: now(), progress: 1 }); return openSheet(it.id); }
+  const sp = t.closest("[data-stset]");
+  if (sp) {
+    const it = S.items[sp.dataset.id], k = sp.dataset.stset, on = sp.classList.contains("on");
+    Journal.setStatus(it, k);
+    if (k === "finished" && !on) change(it.id, isVideo(it) ? { watched: 1, watched_at: now(), progress: 1 } : { progress: 1 });
+    toast(on ? "Status taken off" : `Marked ${sp.querySelector("span").textContent.toLowerCase()}`);
+    return openSheet(it.id);
+  }
   const fin = t.closest("[data-finish]"); if (fin) { const it = S.items[fin.dataset.finish]; change(it.id, { progress: pct(it) >= 100 ? 0 : 1 }); return openSheet(it.id); }
   const sst = t.closest("[data-hw-tab]"); if (sst) { W.tab = sst.dataset.hwTab; W.sel = 0; store("hometab.json", W.tab); render(); $("#view").scrollTop = 0; return; }
   const ssc = t.closest("[data-ss]"); if (ssc) { const i = Number(ssc.dataset.ss); if (i === W.sel) return W.open(); W.sel = i; return W.place(); }
