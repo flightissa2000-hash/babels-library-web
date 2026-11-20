@@ -5,7 +5,7 @@
      the rest    the service worker (sw.js) serves files, covers and comic pages; Safari does the browsing, its
                  speech recognition the dictation, Web Push the News notifications */
 (() => {
-  const APP_SCRIPTS = ["js/themes.js", "vendor/jszip.min.js", "vendor/epub.min.js", "vendor/pdf.min.js", "js/app.js", "js/online.js", "js/jukebox.js", "js/dictate.js", "js/journal.js", "js/catalogue.js", "js/news.js", "js/readers.js", "js/pagekeys.js", "js/layouts.js", "js/sky.js"];
+  const APP_SCRIPTS = ["js/themes.js", "vendor/jszip.min.js", "vendor/epub.min.js", "vendor/pdf.min.js", "js/app.js", "js/online.js", "js/jukebox.js", "js/dictate.js", "js/journal.js", "js/catalogue.js", "js/news.js", "js/readers.js", "js/pagekeys.js", "js/layouts.js", "js/sky.js", "js/addons.js", "js/mail.js", "js/quick.js"];
   const kv = new Map();
   const files = {};               // name -> size, finished files only
   const dls = {};                 // download id -> {item, name, title, total, done, state}

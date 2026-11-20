@@ -68,15 +68,15 @@
 ---------------------------------------------------------------- */
 [data-theme=galaxy] body{--glx-photo:url("/sky/photos/tarantula.jpg");--glx-pos:center 40%;
   --glx-cap:"The Tarantula Nebula · 161,000 light-years away, in the Large Magellanic Cloud · NASA, ESA, CSA, STScI, Webb ERO Team"}
-[data-theme=galaxy] body[data-area=home]{--glx-photo:url("/sky/photos/cosmic-cliffs.jpg");--glx-pos:center 78%;
+[data-theme=galaxy] body[data-g-area=home]{--glx-photo:url("/sky/photos/cosmic-cliffs.jpg");--glx-pos:center 78%;
   --glx-cap:"The Cosmic Cliffs · the edge of a star-forming cavity in the Carina Nebula · NASA, ESA, CSA, STScI (Webb)"}
-[data-theme=galaxy] body[data-area=books]{--glx-photo:url("/sky/photos/pillars.jpg");--glx-pos:center 42%;
+[data-theme=galaxy] body[data-g-area=books]{--glx-photo:url("/sky/photos/pillars.jpg");--glx-pos:center 42%;
   --glx-cap:"The Pillars of Creation · in the Eagle Nebula, 6,500 light-years away · NASA, ESA, CSA, STScI; J. DePasquale, A. Koekemoer, A. Pagan (STScI)"}
-[data-theme=galaxy] body[data-area=articles]{--glx-photo:url("/sky/photos/stephans-quintet.jpg");--glx-pos:62% 38%;
+[data-theme=galaxy] body[data-g-area=articles]{--glx-photo:url("/sky/photos/stephans-quintet.jpg");--glx-pos:62% 38%;
   --glx-cap:"Stephan’s Quintet · five galaxies, four of them locked in a cosmic dance · NASA, ESA, CSA, STScI (Webb)"}
-[data-theme=galaxy] body[data-area=music]{--glx-photo:url("/sky/photos/whirlpool.jpg");--glx-pos:30% 50%;
+[data-theme=galaxy] body[data-g-area=music]{--glx-photo:url("/sky/photos/whirlpool.jpg");--glx-pos:30% 50%;
   --glx-cap:"The Whirlpool Galaxy (M51) and its companion · 31 million light-years away · NASA, ESA, S. Beckwith (STScI), Hubble Heritage Team"}
-[data-theme=galaxy] body[data-area=video]{--glx-photo:url("/sky/photos/orion.jpg");--glx-pos:center 35%;
+[data-theme=galaxy] body[data-g-area=video]{--glx-photo:url("/sky/photos/orion.jpg");--glx-pos:center 35%;
   --glx-cap:"The Orion Nebula · the nearest great star nursery, 1,350 light-years away · NASA, ESA, M. Robberto (STScI/ESA), Hubble"}
 /* the photo, clear at the top of the window and dimming lower down, where the reading is */
 [data-theme=galaxy] body::before{
@@ -87,7 +87,7 @@
 [data-theme=galaxy] #library::before{content:var(--glx-cap);display:flex;align-items:flex-end;height:30vh;min-height:160px;margin:-14px -22px 18px;padding:0 26px 14px;
   font:italic .82rem/1.35 "Cormorant Garamond",Georgia,serif;letter-spacing:.02em;color:rgba(230,236,255,.82);text-shadow:0 1px 6px #000,0 0 2px #000;
   background:linear-gradient(180deg,transparent 60%,rgba(4,6,18,.35));pointer-events:none}
-[data-theme=galaxy] body[data-area=home] #library::before{height:22vh;min-height:120px}
+[data-theme=galaxy] body[data-g-area=home] #library::before{height:22vh;min-height:120px}
 [data-theme=galaxy] #library[data-layout=stars]::before{display:none}
 /* everything floats on glass, so the photo shows through between the books */
 [data-theme=galaxy] .lv-sec,[data-theme=galaxy] .lv-list,[data-theme=galaxy] .lv-index .lv-cols,[data-theme=galaxy] .lv-table table{border-radius:16px}
@@ -118,7 +118,7 @@
 [data-theme=galaxy] .btx-mag .btm-wire-row,[data-theme=galaxy] .btx-mag .btm-fig,[data-theme=galaxy] .btx-mag .btm-tfa-page{background:rgba(6,8,22,.45);backdrop-filter:blur(6px)}
 [data-theme=galaxy] .btx-mag .cover,[data-theme=galaxy] .btx-mag img{text-shadow:none}
 /* the window above the Bulletin isn't needed: the Bulletin itself is the window */
-[data-theme=galaxy] body[data-area=home] #library::before{height:auto;min-height:0;margin:-6px -22px 6px;padding:0 26px 4px;background:none}
+[data-theme=galaxy] body[data-g-area=home] #library::before{height:auto;min-height:0;margin:-6px -22px 6px;padding:0 26px 4px;background:none}
 [data-theme=galaxy] .btx-mag header h3,[data-theme=galaxy] .btx-mag .btm-title b,[data-theme=galaxy] .btx-mag .btm-num{text-shadow:none;filter:drop-shadow(0 2px 8px rgba(0,0,0,.85))}
 /* no empty window above the library: the photo already shows through everything; just its name and credit, one slim line */
 [data-theme=galaxy] #library::before{height:auto;min-height:0;margin:-6px 0 10px;padding:0 4px;background:none;font-size:.78rem;opacity:.85}

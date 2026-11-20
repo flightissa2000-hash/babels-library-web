@@ -19,7 +19,7 @@ const S = {
   ops: [],             // changes made here, not yet sent
   jops: [],            // journal changes made here, not yet sent
   readMode: {},        // per kind of file: "pages" or "scroll"
-  search: "duckduckgo", jq: "", jstatus: "all", bq: "",
+  search: "duckduckgo", jq: "", jstatus: "all", jkind: "all", bq: "",
   uploads: {},         // files on their way to the computer: id -> {name, sent, total, state}
   downloads: {},       // item id -> download id
   dlState: {},         // download id -> {state, done, total}
@@ -30,7 +30,7 @@ function load(name, fallback) { try { const t = A ? A.load(name) : localStorage.
 function store(name, obj) { const t = JSON.stringify(obj); if (A) A.save(name, t); else try { localStorage.setItem(name, t); } catch (e) {} }
 function saveState() {
   store("state.json", { conn: S.conn, since: S.since, lastSync: S.lastSync, theme: S.theme, themeChoice: S.themeChoice, autoGet: S.autoGet, downloads: S.downloads,
-    readMode: S.readMode, search: S.search, nav: S.nav, eink: S.eink, jstyle: S.jstyle, tabsOff: S.tabsOff, blayout: S.blayout, bsecond: S.bsecond, bhome: S.bhome, dexMode: S.dexMode, dexScale: S.dexScale, bulletinPeriod: S.bulletinPeriod,
+    readMode: S.readMode, search: S.search, nav: S.nav, eink: S.eink, jstyle: S.jstyle, tabsOff: S.tabsOff, blayout: S.blayout, bsecond: S.bsecond, bhome: S.bhome, dexMode: S.dexMode, dexScale: S.dexScale, bulletinPeriod: S.bulletinPeriod, press: S.press,
     area: S.area, kind: S.kind, libLayout: S.libLayout, groupBy: S.groupBy, groupByArea: S.groupByArea, sort: S.sort, coll: S.coll, readFont: S.readFont, readGap: S.readGap });
 }
 /* ---------------------------------------------------------------- profiles
@@ -240,6 +240,7 @@ function saveLibrary(soon) {
 function saveOps() { store("ops.json", S.ops); store("jops.json", S.jops); }
 (function restore() {
   Object.assign(S, load("state.json", {}));
+  if (!load("jstyle-picked.json", null)) { S.jstyle = "tickets"; store("jstyle-picked.json", "tickets"); setTimeout(saveState, 0); }
   Object.assign(S, load("library.json", {}));
   S.ops = load("ops.json", []);
   S.jops = load("jops.json", []);
@@ -444,11 +445,11 @@ function tabsOff(off) {
 const BLAYOUTS = [["standard", "Standard", "The bar along the top"], ["bottom", "Bottom bar", "The bar at the bottom, by your thumb"], ["rail", "Side rail", "Controls down the side"],
   ["orb", "Orb", "No bar: an orb fans out the controls"], ["tv", "TV set", "Websites on a retro telly, knobs and all"]];
 /* the Browser tab's start page (🧭 Layout → Start page), like the computer's */
-const BHOMES = [["classic", "Classic", "Search card and site tiles"], ["minimal", "Minimal", "One big search, lots of quiet"], ["dash", "Dashboard", "Clock, speed dial, what you read lately"],
-  ["orbit", "Constellation", "Your sites orbit the search"], ["vend", "Vending machine", "Pick a site by its slot"]];
+const BHOMES = [["dash", "Dashboard", "Clock, search and your bookmarks"]];        // (the only start page now)
 const NAVS = [["folders", "Index cards", "Divider tabs down the right edge, like a card file"], ["drawer", "Side drawer", "A ☰ button opens a big menu from the left"]];
 const JSTYLES = [["list", "Clean list", "Covers in rows, grouped by month"], ["notebook", "Notebook", "Lined paper, a red margin, handwriting"],
-  ["timeline", "Timeline", "A line down the page; each finish is a stop on it"], ["wall", "Cover wall", "A wall of covers with status ribbons and scores"]];
+  ["timeline", "Timeline", "A line down the page; each finish is a stop on it"], ["wall", "Cover wall", "A wall of covers with status ribbons and scores"],
+  ["tickets", "Ticket stubs", "Tickets and slips; your score punched in"]];
 
 /* ---------------------------------------------------------------- your changes, sent to the computer */
 function change(id, fields) {
@@ -615,6 +616,11 @@ function merge(d, made = {}) {
   if (d.profiles) Prof.fromServer(d.profiles, d.profile);
   if (d.bulletin_period && d.bulletin_period !== S.bulletinPeriod) { S.bulletinPeriod = d.bulletin_period; saveState(); }
   if (d.bulletin && d.bulletin.week) Bulletin.fromServer(d.bulletin);
+  // this profile's website time limits follow it: the computer's list is the one (the first time, this phone's goes up)
+  if (A && A.setSiteLimits && "site_limits" in d) {
+    if (d.site_limits && typeof d.site_limits === "object") A.setSiteLimits(JSON.stringify(d.site_limits));
+    else { let l = {}; try { l = JSON.parse(A.siteLimits()).limits || {}; } catch (e) {} if (Object.keys(l).length) sendLimits(); }
+  }
   if (Array.isArray(d.bookmarks) && A && A.setBookmarks) syncBookmarks(d.bookmarks);
   Prof.apply();          // (what just arrived is the computer's progress: another profile's goes back on top)
   saveLibrary();
@@ -831,21 +837,29 @@ function row(it) {
 
 /* ---------------------------------------------------------------- screens */
 function setTab(t) {
+  // the Newsstand: the News and the catalogue share one tab (the masthead's last word swaps them); it opens on the one you had
+  if (t === "press") t = S.press === "news" ? "news" : "catalogue";
+  if (t === "news" || t === "catalogue") { if (S.press !== t) { S.press = t; saveState(); } }
   if (t !== "browser" && A && A.browserHide) { A.browserHide(); document.documentElement.classList.remove("bw-on"); }      // (the browser's page waits, out of sight)
+  if (t !== "mail" && A && A.widgetsHide) A.widgetsHide();       // (the Mail tab's widgets are put out of sight)
   S.tab = t; S.limit = 60;
   // a sheet left open (a News story, an item) would sit over the tabs and the browser: another tab closes it
   if (!$("#sheet").hidden) { $("#sheet").hidden = true; Journal.close(); }
-  $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
-  const ic = $(`#tabs [data-tab="${t}"] b`);
+  const navT = t === "news" || t === "catalogue" ? "press" : t;
+  $$("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === navT));
+  const ic = $(`#tabs [data-tab="${navT}"] b`);
   if (ic) $("#navNubIc").textContent = ic.textContent;     // the open tab's icon on the nub, so you know where you are
   render();
   $("#view").scrollTop = 0;
 }
 function render() {
   if (window.Widget) Widget.update();       // (the home-screen widget, when what it shows changed)
-  document.documentElement.dataset.tab = S.tab; document.documentElement.dataset.area = S.area || "books";     // (the Galaxy theme's photo for each tab)
+  // (the Galaxy theme's photo for each tab; not data-tab / data-area, which taps are matched against)
+  document.documentElement.dataset.gTab = S.tab; document.documentElement.dataset.gArea = S.area || "books";
   const v = $("#view");
   const items = Object.values(S.items).filter((i) => !isCopy(i));
+  if (S.tab === "apps" && window.AddOns) return AddOns.render(v);      // (your apps open whether or not a computer is paired)
+  if (S.tab === "mail" && window.MailTab) return MailTab.render(v);       // (so does your mail)
   if (!S.conn.token && S.tab !== "settings") {
     v.innerHTML = `<div class="empty"><h2>Welcome</h2><p>This app shows the library on your computer: your books, manga, comics, articles, music, TV and films, where you are in each one, and anything you've sent to your phone.</p>
       <button class="btn primary" data-go="settings">Pair with your computer</button></div>`;
@@ -857,6 +871,7 @@ function render() {
   if (S.tab === "browser") return renderBrowser(v);
   if (S.tab === "catalogue") return Catalogue.render(v);
   if (S.tab === "news") return NewsTab.render(v);
+  if (S.tab === "mail" && window.MailTab) return MailTab.render(v);
   if (S.tab === "phone") return renderPhone(v, items);
   return renderSettings(v);
 }
@@ -881,6 +896,7 @@ function browserRect() {
   return { x: 0, y: top, w: right, h: bottom - top, cut, nub, nubY: S.nubY || 0.5 };
 }
 function placeBrowser() {
+  if (S.tab === "mail" && window.MailTab) return MailTab.place();      // (the Mail tab's browser sits in the same room)
   const o = browserPage();
   if (!o || !(o.url || o.alive)) return;
   if (S.tab !== "browser" || !A || !A.browserShow || document.body.classList.contains("nav-open") || Reader.open) { document.documentElement.classList.remove("bw-on"); return A && A.browserHide && A.browserHide(); }
@@ -890,6 +906,12 @@ function placeBrowser() {
 addEventListener("resize", () => { if (S.tab === "browser" && browserPage()) placeBrowser(); });
 window.Native.browserClosed = () => { if (S.tab === "browser") render(); };
 /* the profile's bookmarks, as the computer has them; ☆ pressed here while it couldn't be reached is sent now */
+/* the profile's website time limits, sent to the computer (so they follow the profile to its other phones) */
+function sendLimits() {
+  if (!S.conn.token || !Prof.server || !A || !A.siteLimits) return;
+  let l = {}; try { l = JSON.parse(A.siteLimits()).limits || {}; } catch (e) {}
+  api("POST", "/sync/sitelimits", { limits: l }).catch(() => {});
+}
 function syncBookmarks(list) {
   let mine = []; try { mine = JSON.parse(A.bookmarks()); } catch (e) {}
   const have = new Set(list.map((b) => b.url));
@@ -912,71 +934,40 @@ function renderBrowser(v) {
     renderBrowser.fetched = true;
     api("GET", "/sync/bookmarks").then((d) => { A.setBookmarks(JSON.stringify(d.items || [])); if (S.tab === "browser") render(); }).catch(() => {});
   }
-  const pwN = A && A.passwordCount ? A.passwordCount() : 0;
   let html = "", cur = "";
   for (const x of list.slice(0, S.limit)) {
     const d = new Date(x.t * 1000).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
     if (d !== cur) { html += `${cur ? "</div>" : ""}<h3 class="j-month">${esc(d)}</h3><div class="list">`; cur = d; }
-    html += `<button class="row b-row" data-go-url="${esc(x.url)}"><span class="t"><b>${esc(x.title || x.url)}</b><small>${esc(x.url)}</small></span><small class="hint">${new Date(x.t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small></button>`;
+    html += `<button class="row b-row" data-go-url="${esc(x.url)}"><span class="t"><b>${esc(x.title || x.url)}</b><small>${esc(x.url)}</small></span><small class="hint">${new Date(x.t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small><span class="b-del" data-hdel="${esc(x.url)}" data-ht="${x.t}" role="button" aria-label="Remove from history">✕</span></button>`;
   }
   if (cur) html += "</div>";
-  const last = h[0], H = BHOMES.some((x) => x[0] === S.bhome) ? S.bhome : "classic";
+  const last = h[0], H = "dash";
   const day = esc(new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }));
   const form = (place = "Search, or type an address") => `<form class="bw-search" id="bForm"><span class="bw-mag">⌕</span><input id="bAddr" type="search" placeholder="${esc(place)}" autocomplete="off"></form>`;
   const btns = `<div class="bw-btns"><button class="bw-go" form="bForm"><span class="bd">⌕</span>Search</button><button class="bw-wiki" id="bWiki" type="button"><span class="bd">W</span>Wikipedia</button>
         ${last ? `<button class="bw-again" type="button" data-go-url="${esc(last.url)}" aria-label="Reopen the last page"><span>↺</span></button>` : ""}</div>`;
   const letter = (s) => esc(s.site[0].toUpperCase());
-  let start;
-  if (H === "minimal") {
-    // a big quiet search, the date above, one row of small site letters below
-    start = `<section class="hm-min"><div class="bw-day">${day}</div>${form("Search or type an address")}${btns}
-      ${sites.length ? `<div class="hm-minrow">${sites.map((s) => `<button data-go-url="${esc(s.url)}" aria-label="${esc(s.site)}">${letter(s)}<span class="bw-unpin" data-unpin="${esc(s.url)}" role="button" aria-label="Remove bookmark">✕</span></button>`).join("")}</div>` : ""}</section>`;
-  } else if (H === "dash") {
-    // a big clock and the search; a speed dial; what you read lately
-    start = `<section class="hm-dash"><div class="hm-clock">${esc(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</div><div class="bw-day">${day}</div>${form()}${btns}
+  // the start page: a big clock and the search, where you left off, then your bookmarks
+  const host = (s) => esc(s.site.replace(/^www\./, ""));
+  const start = `<section class="hm-dash"><div class="hm-clock">${esc(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }))}</div><div class="bw-day">${day}</div>${form()}${btns}
         ${last ? `<button class="hm-resume" type="button" data-go-url="${esc(last.url)}"><small>Pick up where you left off</small><b>${esc(last.title || last.url)}</b></button>` : ""}</section>
-      ${sites.length ? `<h3 class="hm-h">Bookmarks</h3><div class="hm-dial">${sites.map((s, i) => `<button class="hm-key" data-go-url="${esc(s.url)}"><span class="hm-n">${i + 1}</span><i>${letter(s)}</i><b>${esc(s.title || s.site)}</b><span class="bw-unpin" data-unpin="${esc(s.url)}" role="button" aria-label="Remove bookmark">✕</span></button>`).join("")}</div>` : ""}
-      ${h.length ? `<h3 class="hm-h">Lately</h3><div class="hm-lately">${h.slice(0, 5).map((x) => `<button data-go-url="${esc(x.url)}"><b>${esc(x.title || x.url)}</b><small>${esc(x.url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 48))}</small></button>`).join("")}</div>` : ""}`;
-  } else if (H === "orbit") {
-    // a starfield: the search glows in the middle like a sun, your sites orbit it
-    const ring = (list, cls) => `<div class="hm-ring ${cls}">${list.map((s, i) => `<button class="hm-planet" data-go-url="${esc(s.url)}" style="--a:${(360 / list.length) * i}deg"><span>${letter(s)}</span><b>${esc(s.site)}</b><span class="bw-unpin" data-unpin="${esc(s.url)}" role="button" aria-label="Remove bookmark">✕</span></button>`).join("")}</div>`;
-    start = `<section class="hm-sky"><div class="hm-stars"></div>${ring(sites.slice(3, 8), "r2")}${ring(sites.slice(0, 3), "r1")}
-      <div class="hm-sun"><div class="bw-day">${day}</div><b class="hm-where">Where to?</b></div></section>
-      <section class="hm-skyform">${form("Search the cosmos…")}${btns}</section>`;
-  } else if (H === "vend") {
-    // a vending machine: your sites behind the glass in lettered slots; the keypad is the search; the coin slot reopens
-    const slot = (i) => "ABC"[Math.floor(i / 3)] + ((i % 3) + 1);
-    start = `<section class="hm-machine"><div class="hm-sign">SNAX &amp; SITES</div>
-      <div class="hm-glass">${sites.slice(0, 9).map((s, i) => `<button class="hm-item" data-go-url="${esc(s.url)}"><span class="hm-snack">${letter(s)}</span><b>${esc(s.site)}</b><i class="hm-coil"></i><em>${slot(i)}</em><span class="bw-unpin" data-unpin="${esc(s.url)}" role="button" aria-label="Remove bookmark">✕</span></button>`).join("") ||`<p class="hint">Sites you visit stock the machine.</p>`}</div>
-      <div class="hm-panel"><div class="hm-lcd">${day.toUpperCase()}<br>MAKE A SELECTION</div>${form("Type a code (B2)… or anything")}${btns}
-        ${last ? `<button class="hm-coin" type="button" data-go-url="${esc(last.url)}"><i></i>COIN RETURN · reopen last page</button>` : ""}</div>
-      <div class="hm-tray">PUSH</div></section>`;
-    S.vendSites = sites;
-  } else {
-    start = `<section class="bw-hero"><div class="bw-day">${day}</div>${form()}${btns}
-      ${last ? `<small class="bw-again-tip">↺ reopens ${esc(last.title || last.url)}</small>` : ""}</section>
-    ${sites.length ? `<div class="bw-tiles">${sites.map((s) => `<button class="bw-tile" data-go-url="${esc(s.url)}"><span class="ring">${letter(s)}</span><small>${esc(s.site)}</small><span class="bw-unpin" data-unpin="${esc(s.url)}" role="button" aria-label="Remove bookmark">✕</span></button>`).join("")}</div>` : ""}`;
-  }
+      ${sites.length ? `<h3 class="hm-h">Bookmarks <small>${sites.length}</small></h3><div class="hm-dial">${sites.map((s) => `<button class="hm-key" data-go-url="${esc(s.url)}"><i>${letter(s)}</i><span><b>${esc(s.title || s.site)}</b><small>${host(s)}</small></span><span class="bw-unpin" data-unpin="${esc(s.url)}" role="button" aria-label="Remove bookmark">✕</span></button>`).join("")}</div>` : ""}`;
   // the page you left open in the browser (‹ Library or Back keeps it): one tap goes back to it
   v.innerHTML = `<div class="bw-page home-${H}"><div class="bw-top"><button class="btn sm bw-stylebtn" id="bStyle" type="button">🧭 Layout</button></div>
-    <div class="bw-stylepick" id="bStylePick" ${S.bPick ? "" : "hidden"}><h4>Start page</h4>${BHOMES.map(([k, n, d]) => `<button class="bw-bpick ${H === k ? "on" : ""}" data-bhpick="${k}"><i class="ho ho-${k}"><b></b></i><b>${n}</b><small>${d}</small></button>`).join("")}
-      ${WEB ? "" : "<h4>Browser controls</h4>"}${WEB ? "" : BLAYOUTS.map(([k, n, d]) => `<button class="bw-bpick ${S.blayout === k ? "on" : ""}" data-blpick="${k}"><i class="lo lo-${k}"><b></b></i><b>${n}</b><small>${d}</small></button>`).join("")}
+    <div class="bw-stylepick" id="bStylePick" ${S.bPick ? "" : "hidden"}>${WEB ? "" : "<h4>Browser controls</h4>"}${WEB ? "" : BLAYOUTS.map(([k, n, d]) => `<button class="bw-bpick ${S.blayout === k ? "on" : ""}" data-blpick="${k}"><i class="lo lo-${k}"><b></b></i><b>${n}</b><small>${d}</small></button>`).join("")}
       ${WEB ? "" : `<h4>A second page</h4>${[["split", "⧉", "Split", "Two pages, one above the other"], ["swap", "⇄", "Swap", "One page at a time: the button swaps to the other"]].map(([k, g, n, d]) => `<button class="bw-bpick ${(S.bsecond === "swap" ? "swap" : "split") === k ? "on" : ""}" data-bspick="${k}"><i class="so">${g}</i><b>${n}</b><small>${d}</small></button>`).join("")}`}</div>
     ${start}
     <button class="btn bw-histbtn" id="bHist" type="button">🕘 History</button>
     ${sites.length ? "" : `<p class="bw-nobm">No bookmarks yet. Press ☆ on the browser's bar while you're on a page (here or on your computer) and it shows up here.</p>`}
-    ${WEB ? `<p class="hint">Pages open in Safari (with its own passwords, Reader view and content blockers). Pages you open from here are listed in History.</p>` : `<section class="bw-pw">
-      <div><b>🔑 Saved passwords</b><small>${pwN ? `${pwN} saved on this phone, encrypted in its secure keystore. On a site you have one for, 🔑 on the browser's bar fills it in.` : "Import an export from Chrome, Firefox, Edge, Bitwarden, 1Password or LastPass (a .csv file). They're encrypted in this phone's secure keystore."}</small></div>
-      <div class="btns"><button class="btn sm" id="pwImport" type="button">Import passwords…</button>${pwN ? `<button class="btn sm danger" id="pwClear" type="button">Remove all</button>` : ""}</div>
-    </section>
-    <p class="hint">Ads and pop-ups blocked. ${S.bsecond === "swap" ? "⇄ on the browser's bar opens a second page and swaps between the two (✕ closes the one you're on)." : "⧉ on the browser's bar splits it in two."} Your phone's own password manager (Google, Samsung Pass…) works here too.</p>`}
+    <p class="hint">${WEB ? "Pages open in Safari (with its own passwords, Reader view and content blockers). Pages you open from here are listed in History." : `Ads and pop-ups blocked. ${S.bsecond === "swap" ? "⇄ on the browser's bar opens a second page and swaps between the two (✕ closes the one you're on)." : "⧉ on the browser's bar splits it in two."} Saved passwords: Settings → Passwords.`}</p>
     <div class="bw-sheet${S.bOpen ? " open" : ""}" id="bSheet">
       <div class="bw-sheet-head"><b>History</b><button class="btn sm" id="bHistClose" type="button" aria-label="Close history">✕</button></div>
       <div class="bw-sheet-body">
         <div class="searchrow"><input id="bq" type="search" placeholder="Search history" value="${esc(S.bq)}"><button class="btn" id="bClear">Clear…</button></div>
-        <div class="chips" id="bClearPick" hidden><button data-bclear="hour">Last hour</button><button data-bclear="today">Today</button><button data-bclear="all">All history</button></div>
-        ${html || `<p class="empty">${S.bq ? "Nothing matches." : "Pages you visit show up here."}</p>`}
-        ${list.length > S.limit ? `<button class="btn more" id="more">Show more</button>` : ""}
+        <div class="chips" id="bClearPick" ${S.bSites ? "" : "hidden"}><button data-bclear="hour">Last hour</button><button data-bclear="today">Today</button><button data-bclear="all">All history</button>
+          ${WEB ? "" : `<button data-bclear="sites" class="${S.bSites ? "on" : ""}">A website…</button><button data-bclear="cookies">🍪 Cookies &amp; site data</button>`}</div>
+        ${S.bSites ? sitesHtml(h) : `${html || `<p class="empty">${S.bq ? "Nothing matches." : "Pages you visit show up here."}</p>`}
+        ${list.length > S.limit ? `<button class="btn more" id="more">Show more</button>` : ""}`}
       </div></div>
     <div class="bw-shade${S.bOpen ? " on" : ""}" id="bShade"></div></div>`;
   historySheet();
@@ -987,7 +978,7 @@ window.Native.pwImported = (r) => {
   if (!r) return;
   if (r.error) return toast(r.error);
   toast(`Imported: ${r.added} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} skipped` : ""}. Delete the exported file now: it isn't encrypted.`);
-  if (S.tab === "browser") render();
+  if (S.tab === "browser" || S.tab === "settings") render();
 };
 document.addEventListener("click", (e) => {
   if (e.target.closest?.("#pwImport")) return A && A.importPasswords();
@@ -1016,7 +1007,41 @@ function historySheet() {
   $("#bShade").onclick = $("#bHistClose").onclick = () => set(false);
   $("#bHist").onclick = () => set(true);
 }
+/* privacy: the websites in your history, each one forgotten in one go (its pages, its cookies, what it stored) */
+const siteOf = (u) => { try { const h = new URL(u).hostname.replace(/^www\./, ""); if (/^[\d.]+$|^\[|^localhost$/.test(h)) return h; const p = h.split("."); return p.length > 2 && p[p.length - 1].length === 2 && /^(co|com|net|org|ac|or|ne|go)$/.test(p[p.length - 2]) ? p.slice(-3).join(".") : p.slice(-2).join("."); } catch (e) { return ""; } };
+function sitesHtml(h) {
+  const by = new Map();
+  for (const x of h) { const s = siteOf(x.url); if (!s) continue; const o = by.get(s) || { n: 0, last: 0 }; o.n++; o.last = Math.max(o.last, x.t); by.set(s, o); }
+  const words = S.bq.toLowerCase().split(/\s+/).filter(Boolean);
+  const rows = [...by].filter(([s]) => words.every((w) => s.includes(w))).sort((a, b) => b[1].last - a[1].last)
+    .map(([s, o]) => `<div class="row b-site"><span class="t"><b>${esc(s)}</b><small>${o.n} page${o.n === 1 ? "" : "s"} · last ${esc(ago(o.last))}</small></span><button class="btn sm danger" data-forget="${esc(s)}" type="button">Forget</button></div>`).join("");
+  return `<p class="hint">Forgetting a website takes its pages off your history and deletes its cookies and what it stored on the phone (you'll be signed out of it).</p><div class="list">${rows || `<p class="empty">No websites in your history.</p>`}</div>`;
+}
+function forgetSite(site) {
+  if (!confirm(`Forget ${site}? Its pages come off your history, and its cookies and saved data are deleted (you'll be signed out of it).`)) return;
+  const all = history(), hosts = [...new Set(all.filter((x) => siteOf(x.url) === site).map((x) => { try { return new URL(x.url).hostname; } catch (e) { return ""; } }).filter(Boolean))];
+  A.setBrowserHistory(JSON.stringify(all.filter((x) => siteOf(x.url) !== site)));
+  if (A.forgetSite) A.forgetSite(site, JSON.stringify(hosts));
+  toast(`${site} forgotten`);
+  render();
+}
+document.addEventListener("click", (e) => {
+  const d = e.target.closest?.("[data-hdel]");
+  if (d) {           // one page off the history
+    e.stopImmediatePropagation(); e.preventDefault();
+    const u = d.dataset.hdel, t = Number(d.dataset.ht);
+    A.setBrowserHistory(JSON.stringify(history().filter((x) => !(x.url === u && x.t === t))));
+    return render();
+  }
+  const f = e.target.closest?.("[data-forget]"); if (f) { e.stopImmediatePropagation(); return forgetSite(f.dataset.forget); }
+}, true);
 function clearHistory(which) {
+  if (which === "sites") { S.bSites = !S.bSites; return render(); }
+  if (which === "cookies") {
+    if (!confirm("Delete every website's cookies and saved data on this phone? You'll be signed out of websites. Your history and bookmarks stay.")) return;
+    A.clearSiteData(JSON.stringify([...new Set(history().map((x) => { try { return new URL(x.url).hostname; } catch (e) { return ""; } }).filter(Boolean))]));
+    return toast("Cookies and site data deleted");
+  }
   const since = which === "all" ? 0 : which === "today" ? new Date().setHours(0, 0, 0, 0) / 1000 : now() - 3600;
   A.setBrowserHistory(JSON.stringify(history().filter((x) => x.t < since)));
   render();
@@ -1037,6 +1062,7 @@ function renderHome(v, items) {
   v.innerHTML = `${uploadsHtml()}${coming2}
     <div class="ss" id="ss">
       <div class="ss-bg" id="ssBg"></div>
+      ${window.AddOns ? AddOns.dock() : ""}
       <section class="ss-info" id="ssInfo"></section>
       <div class="ss-stage"><div class="ss-wheel" id="ssWheel">${W.list.map((it, i) => {
         const [st, label] = W.status(it), p = pct(it);
@@ -1114,7 +1140,10 @@ const W = {
 /* the swap button, in the same corner on both home pages: it says where it goes next */
 function swapHtml() {
   const next = W.tab === "bulletin" ? "phone" : "bulletin";
-  return `<button class="hw-swap" data-hw-tab="${next}" aria-label="Switch to ${esc(W.tabs[next])}"><span class="hw-swap-lbl"><small>Switch to</small><b>${esc(W.tabs[next])}</b></span><span class="hw-swap-disc"><i>⇄</i></span></button>`;
+  // two page tabs at the top of Home, the open one lit (a sideways swipe on Home turns the page too)
+  // a switch in the corner: both pages' pictures, the knob slides to the one you're on (a sideways swipe works too)
+  const anim = W.swapAnim ? " anim" : ""; W.swapAnim = false;
+  return `<button class="hw-sw at-${W.tab === "bulletin" ? "b" : "p"}${anim}" data-hw-tab="${next}" type="button" role="switch" aria-checked="${W.tab === "bulletin"}" aria-label="On this phone or The Bulletin: now ${esc(W.tabs[W.tab])}"><span class="hw-sw-knob" aria-hidden="true"></span><span class="hw-sw-ic">📱</span><span class="hw-sw-ic">📰</span></button>`;
 }
 
 /* Home → The Bulletin, the computer's weekly magazine on the phone: this week's challenge as the cover story (finish
@@ -1307,7 +1336,7 @@ window.Widget = (() => {
   };
   function data() {
     const cs = getComputedStyle(document.documentElement), c = (v) => hex(cs.getPropertyValue(v));
-    const theme = { bg: c("--bg"), surface: c("--surface"), ink: c("--ink"), soft: c("--ink-soft"), accent: c("--accent") };
+    const theme = { key: document.documentElement.dataset.theme, bg: c("--bg"), surface: c("--surface"), ink: c("--ink"), soft: c("--ink-soft"), accent: c("--accent") };
     const all = Object.values(S.items);
     /* a reading copy is shown as its book (its title and cover); the place and the tap are the version read last */
     const origOf = (x) => { if (!isCopy(x)) return x; const o = S.items[String(x.source).slice("reading-copy:".length)]; return o || x; };
@@ -1482,16 +1511,26 @@ function renderLibrary(v) {
   const lay = area === "music" || !flat.length ? null : LibLayouts.html(flat, labels, stacks);      // (null: the fan deck)
   const opt = (list, cur) => list.map(([k, l]) => `<option value="${esc(k)}" ${String(cur) === String(k) ? "selected" : ""}>${esc(l)}</option>`).join("");
   const colls = [["", "Everything"], ["wish", "★ Wishlist"], ...(S.colls || []).map((c) => [c.id, c.name])];
-  v.innerHTML = `${uploadsHtml()}<button class="btn send-pc" id="sendPc">⬆ Send files to your computer</button>
-    <div class="lib-areas">${LIB.areas.map(([k, l]) => `<button data-area="${k}" class="${area === k ? "on" : ""}">${l}</button>`).join("")}</div>
-    ${tabs.length || area !== "music" ? `<div class="lib-kindrow">${tabs.length ? `<div class="chips lib-kinds"><button data-kind="all" class="${S.kind === "all" ? "on" : ""}">All</button>${tabs.map(([k, l]) => `<button data-kind="${k}" class="${S.kind === k ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}${area === "music" ? "" : LibLayouts.compass()}</div>` : ""}
-    <div class="searchrow"><input id="q" type="search" placeholder="${esc(LIB.placeholder[area])}" value="${esc(S.q)}"></div>
-    <div class="lib-ctl">
+  // one compact header: the four shelves as tabs; search with the filters, the layout switch and "send to computer"
+  // beside it; the kinds under it; group / sort / collection fold away behind ⚙ (a dot on it when one isn't the usual)
+  const AREA_IC = { books: "📚", articles: "📰", music: "🎵", video: "🎬" };
+  const custom = S.sort !== "added" || !!S.coll;
+  const summary = [gopts.find(([k]) => k === S.groupBy)?.[1], LIB.sorts.find(([k]) => k === S.sort)?.[1], S.coll ? (colls.find(([k]) => String(k) === String(S.coll)) || [, ""])[1] : ""].filter(Boolean).join(" · ");
+  v.innerHTML = `${uploadsHtml()}<div class="lh">
+    <nav class="lh-areas">${LIB.areas.map(([k, l]) => `<button data-area="${k}" class="${area === k ? "on" : ""}"><i>${AREA_IC[k] || "•"}</i><span>${esc(l)}</span></button>`).join("")}</nav>
+    <div class="lh-bar"><label class="lh-search"><i aria-hidden="true">⌕</i><input id="q" type="search" placeholder="Search" aria-label="${esc(LIB.placeholder[area])}" value="${esc(S.q)}"></label>
+      <button class="lh-ico ${S.libFilt ? "on" : ""} ${custom ? "dot" : ""}" id="libFilt" type="button" aria-label="Group, sort and collection">⚙</button>
+      ${area === "music" ? "" : LibLayouts.compass()}
+      <button class="lh-ico" id="sendPc" type="button" aria-label="Send files to your computer">⬆</button></div>
+    ${tabs.length ? `<div class="chips lib-kinds lh-kinds"><button data-kind="all" class="${S.kind === "all" ? "on" : ""}">All</button>${tabs.map(([k, l]) => `<button data-kind="${k}" class="${S.kind === k ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
+    <div class="lh-filters" ${S.libFilt ? "" : "hidden"}><div class="lib-ctl">
       <label><span>Group</span><select id="libGroup">${opt(gopts, S.groupBy)}</select></label>
       <label><span>Sort</span><select id="sort">${opt(LIB.sorts, S.sort)}</select></label>
       <label><span>Collection</span><select id="libColl">${opt(colls, S.coll || "")}</select></label>
+    </div></div>
+    ${S.libFilt ? "" : `<button class="lh-sum" id="libFiltSum" type="button">${esc(summary)}</button>`}
     </div>
-    ${area === "music" ? Jukebox.html(groups) : flat.length ? (lay ?? Deck.html(flat, labels)) : `<p class="empty">Nothing here.</p>`}`;
+    <div id="libBody">${area === "music" ? Jukebox.html(groups) : flat.length ? (lay ?? Deck.html(flat, labels)) : `<p class="empty">Nothing here.</p>`}</div>`;
   if (flat.length && area !== "music" && lay == null) Deck.mount(flat.length);
 }
 function renderPhone(v, items) {
@@ -1671,6 +1710,11 @@ function renderSettings(v) {
       <label class="check"><input type="checkbox" id="newsAlerts" ${A && A.newsAlerts && A.newsAlerts() ? "checked" : ""}> Notify me when a new event turns up in the News “Events” section</label>
       <p class="hint">${WEB ? "Works when this app is on your Home Screen (in Safari: Share → Add to Home Screen, then open it from there). The computer looks every few hours and sends the notification; tap it to share or open the event." : "The computer looks every few hours; the phone checks in about once an hour and needs to reach the computer (home Wi-Fi, or “Reach this library from anywhere”). Each notification has Share and Open."}</p></div>
     ${window.PageKeys ? PageKeys.panel() : ""}
+    ${WEB || !A || !A.passwordCount ? "" : (() => { const pwN = A.passwordCount();
+      return `<div class="panel"><h3>🔑 Passwords</h3>
+        <p class="hint">${pwN ? `${pwN} saved on this phone, encrypted in its secure keystore. On a site you have one for, 🔑 on the browser's bar fills it in.` : "Import an export from Chrome, Firefox, Edge, Bitwarden, 1Password or LastPass (a .csv file). They're encrypted in this phone's secure keystore, for the browser's 🔑."}</p>
+        <div class="btns"><button class="btn" id="pwImport" type="button">Import passwords…</button>${pwN ? `<button class="btn danger" id="pwClear" type="button">Remove all</button>` : ""}</div>
+        <p class="hint">Your phone's own password manager (Google, Samsung Pass…) works in the browser too.</p></div>`; })()}
     ${WEB || !A || !A.siteLimits ? "" : (() => {
       let sl = { limits: {}, used: {} };
       try { sl = JSON.parse(A.siteLimits()); } catch (e) {}
@@ -1683,10 +1727,11 @@ function renderSettings(v) {
         <div class="row" style="gap:8px;align-items:center;margin-top:8px">
           <select id="limMin" style="flex:1">${[15, 30, 45, 60, 90, 120, 180].map((m) => `<option value="${m}" ${m === 60 ? "selected" : ""}>${fmt(m)}</option>`).join("")}</select>
           <button class="btn primary" data-limit-add>Add</button></div>
-        <p class="hint">A day's time on a website in the browser: it counts while the site is on screen or playing, and when it runs out the site closes until midnight.</p></div>`; })()}
+        <p class="hint">A day's time on a website in the browser: it counts while the site is on screen or playing, and when it runs out the site closes until midnight. These are ${esc(Prof.me().name)}'s limits: each profile has its own${Prof.server ? ", and they follow it to its other phones" : ""}.</p></div>`; })()}
     <div class="panel"><h3>The Bulletin</h3>
       <div class="chips"><b class="chip-lbl">Challenge lasts</b>${[["week", "A week"], ["month", "A month"]].map(([k, n]) => `<button data-bperiod="${k}" class="${(S.bulletinPeriod || "week") === k ? "on" : ""}">${n}</button>`).join("")}</div>
       <p class="hint">For this profile only, here and on the computer. A month starts on the 1st, a week on Monday.</p></div>
+    ${window.AddOns ? AddOns.settingsPanel() : ""}
     <div class="panel"><h3>Look</h3>
       <label class="check"><input type="checkbox" id="einkOn" ${S.eink ? "checked" : ""}> E-reader mode <small class="hint">(for e-ink screens: switches to the E-reader theme, with no animations or shadows)</small></label>
       <div class="field"><label for="themeSel">Theme</label><select id="themeSel"><option value="auto">Same as the computer</option>${Object.entries(window.THEMES || {}).map(([k, t]) => `<option value="${k}">${esc(t.name)}</option>`).join("")}</select></div>
@@ -2140,10 +2185,10 @@ document.addEventListener("click", (e) => {
   if (t.closest("[data-limit-add]")) {
     const site = ($("#limSite").value || "").trim(), m = +$("#limMin").value || 60;
     if (!site) { toast("Type a website, like youtube.com"); return; }
-    A.setSiteLimit(site, m); toast(`${site} now has ${m >= 60 && m % 60 === 0 ? m / 60 + " h" : m + " min"} a day`); return render();
+    A.setSiteLimit(site, m); sendLimits(); toast(`${site} now has ${m >= 60 && m % 60 === 0 ? m / 60 + " h" : m + " min"} a day`); return render();
   }
   const lo = t.closest("[data-limit-off]");
-  if (lo) { A.setSiteLimit(lo.dataset.limitOff, 0); toast(`Limit taken off ${lo.dataset.limitOff}`); return render(); }
+  if (lo) { A.setSiteLimit(lo.dataset.limitOff, 0); sendLimits(); toast(`Limit taken off ${lo.dataset.limitOff}`); return render(); }
   const bp = t.closest("[data-bperiod]");
   if (bp) {
     const p = bp.dataset.bperiod;
@@ -2195,12 +2240,13 @@ document.addEventListener("click", (e) => {
     return openSheet(it.id);
   }
   const fin = t.closest("[data-finish]"); if (fin) { const it = S.items[fin.dataset.finish]; change(it.id, { progress: pct(it) >= 100 ? 0 : 1 }); return openSheet(it.id); }
-  const sst = t.closest("[data-hw-tab]"); if (sst) { W.tab = sst.dataset.hwTab; W.sel = 0; store("hometab.json", W.tab); render(); $("#view").scrollTop = 0; return; }
+  const sst = t.closest("[data-hw-tab]"); if (sst) { if (sst.dataset.hwTab === W.tab) return; W.swapAnim = true; W.tab = sst.dataset.hwTab; W.sel = 0; store("hometab.json", W.tab); render(); $("#view").scrollTop = 0; return; }
   const ssc = t.closest("[data-ss]"); if (ssc) { const i = Number(ssc.dataset.ss); if (i === W.sel) return W.open(); W.sel = i; return W.place(); }
   const gu = t.closest("[data-go-url]"); if (gu) return A.openBrowser(gu.dataset.goUrl);
   const uc = t.closest("[data-up-cancel]"); if (uc) { A.cancelUpload(uc.dataset.upCancel); toast("Cancelling…"); return; }
   const ur = t.closest("[data-up-retry]"); if (ur) { A.retryUpload(ur.dataset.upRetry); return; }
   const ux = t.closest("[data-up-clear]"); if (ux) { A.dismissUpload(ux.dataset.upClear); paintUploads(); return; }
+  if (t.closest("#libFilt, #libFiltSum")) { S.libFilt = !S.libFilt; return render(); }      // (the library's group / sort / collection)
   if (t.closest("#sendPc")) {
     if (!S.conn.token) return toast("Pair with your computer first (Settings).");
     return uploadPrivacy().then((priv) => { if (priv != null) A.pickFiles(priv); });
@@ -2223,6 +2269,14 @@ let composing = false;
 document.addEventListener("compositionstart", () => { composing = true; });
 document.addEventListener("compositionend", (e) => { composing = false; if (e.target.id === "q" || e.target.id === "bq") e.target.dispatchEvent(new Event("input", { bubbles: true })); });
 function redrawKeeping(id) {
+  // the library's search: only the results below it are redrawn, so the box (and the word the keyboard is
+  // partway through) stays as it is, and the results follow every letter
+  if (id === "q" && S.tab === "library" && $("#libBody")) {
+    const tmp = document.createElement("div");
+    renderLibrary(tmp);
+    const body = tmp.querySelector("#libBody");
+    if (body) { $("#libBody").replaceWith(body); if (body.querySelector("#deck") && window.Deck && Deck.mount) Deck.mount(body.querySelectorAll("[data-item],[data-lay-series]").length); return; }
+  }
   if (composing) return;
   const el = $("#" + id);
   const pos = el ? el.selectionStart : null;
@@ -2271,3 +2325,23 @@ tick();
 paintPill();
 if (Object.keys(S.downloads).length) watchDownloads();
 sync();
+
+/* Home: a sideways swipe turns between "On this phone" and The Bulletin (as the tabs at the top do); not on things
+   that scroll sideways themselves */
+(() => {
+  let x0 = null, y0 = 0, t0 = 0;
+  // (touch events: once the page starts scrolling, pointer events are cancelled, but touches still end)
+  document.addEventListener("touchstart", (e) => {
+    x0 = null;
+    if (e.touches.length !== 1 || S.tab !== "home" || Reader.open || !$("#sheet").hidden || e.target.closest(".ao-dock, .chips, [class*=strip], input, textarea, .hw-sw")) return;
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+  }, { capture: true, passive: true });
+  document.addEventListener("touchend", (e) => {
+    if (x0 === null || !e.changedTouches.length) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) < 80 || Math.abs(dy) > Math.abs(dx) * 0.6 || Date.now() - t0 > 700) return;
+    const to = dx < 0 ? "bulletin" : "phone";
+    if (to === W.tab) return;
+    W.swapAnim = true; W.tab = to; W.sel = 0; store("hometab.json", W.tab); render(); $("#view").scrollTop = 0;
+  }, { capture: true, passive: true });
+})();

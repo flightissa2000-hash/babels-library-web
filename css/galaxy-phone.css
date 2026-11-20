@@ -5,12 +5,12 @@ html[data-theme=galaxy]{--surface:rgba(16,21,50,.76);--bar-bg:rgba(8,11,30,.82);
 html[data-theme=galaxy] body::before{
   background-image:linear-gradient(180deg,rgba(4,6,18,.12) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/tarantula.jpg");
   background-size:auto,cover;background-position:0 0,center 40%;background-repeat:no-repeat;background-attachment:fixed}
-html[data-theme=galaxy][data-tab=home] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/cosmic-cliffs.jpg");background-position:0 0,40% 80%}
-html[data-theme=galaxy][data-tab=library][data-area=books] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/pillars.jpg");background-position:0 0,center 35%}
-html[data-theme=galaxy][data-tab=library][data-area=articles] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/stephans-quintet.jpg");background-position:0 0,60% 40%}
-html[data-theme=galaxy][data-tab=library][data-area=music] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/whirlpool.jpg");background-position:0 0,35% 50%}
-html[data-theme=galaxy][data-tab=library][data-area=video] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/orion.jpg");background-position:0 0,center 35%}
-html[data-theme=galaxy][data-tab=journal] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.2) 0,rgba(4,6,18,.55) 45%,rgba(4,6,18,.82) 100%),url("../sky/photos/whirlpool.jpg");background-position:0 0,30% 50%}
+html[data-theme=galaxy][data-g-tab=home] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/cosmic-cliffs.jpg");background-position:0 0,40% 80%}
+html[data-theme=galaxy][data-g-tab=library][data-g-area=books] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/pillars.jpg");background-position:0 0,center 35%}
+html[data-theme=galaxy][data-g-tab=library][data-g-area=articles] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/stephans-quintet.jpg");background-position:0 0,60% 40%}
+html[data-theme=galaxy][data-g-tab=library][data-g-area=music] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/whirlpool.jpg");background-position:0 0,35% 50%}
+html[data-theme=galaxy][data-g-tab=library][data-g-area=video] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.1) 0,rgba(4,6,18,.45) 45%,rgba(4,6,18,.78) 100%),url("../sky/photos/orion.jpg");background-position:0 0,center 35%}
+html[data-theme=galaxy][data-g-tab=journal] body::before{background-image:linear-gradient(180deg,rgba(4,6,18,.2) 0,rgba(4,6,18,.55) 45%,rgba(4,6,18,.82) 100%),url("../sky/photos/whirlpool.jpg");background-position:0 0,30% 50%}
 /* glass: panels and rows let the photo through, blurred */
 html[data-theme=galaxy] .panel,html[data-theme=galaxy] .ll-row,html[data-theme=galaxy] .lb-col,html[data-theme=galaxy] .lq-row,html[data-theme=galaxy] .li-letter,
 html[data-theme=galaxy] .lz-card,html[data-theme=galaxy] .ll-menu{backdrop-filter:blur(12px) saturate(1.2);-webkit-backdrop-filter:blur(12px) saturate(1.2);border-color:rgba(150,170,255,.18)}
