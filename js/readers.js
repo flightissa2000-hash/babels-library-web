@@ -121,9 +121,12 @@ Object.assign(window.Reader, (() => {
       if (kind === "pdf") await pdf();
       else if (kind === "epub") await epub();
       else if (kind === "comic") await comic();
+      if (["pdf", "epub", "comic"].includes(kind)) loadInk(it);
       else if (kind === "video") video();
       else if (kind === "audio") audio();
       else unsupported(`This app can't show ${ext.toUpperCase()} files itself.`);
+      // listened last: go to where the audio got to (or, while it plays, follow it)
+      if ((kind === "pdf" || kind === "epub") && it.audio_status === "ready") setTimeout(() => { if (R && R.it.id === it.id) followAudio(); }, 1200);
     } catch (e) {
       console.error(e);
       if (R && R.it === it) unsupported(`Couldn't open the file (${e.message || e}).`);
@@ -459,8 +462,106 @@ Object.assign(window.Reader, (() => {
     const prev = R.cleanup; R.cleanup = () => { removeEventListener("resize", R.refit); prev(); };
     await show(page);
   }
+  /* the reMarkable's ink: what was written on this book with the tablet's pen ("Ink" on the tablet). PDFs show it
+     over their pages (✒ turns it on and off); EPUBs and comics, laid out differently there, show the tablet's inked
+     pages in a sheet. Kept on the phone too, for reading away from the computer. */
+  function inkSvg(page, aspect) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "ink-layer");
+    svg.setAttribute("viewBox", `0 0 1 ${aspect}`);
+    svg.setAttribute("preserveAspectRatio", "none");
+    let out = "";
+    for (const h of page.highlights || []) for (const r of h.rects || []) out += `<rect x="${r[0]}" y="${r[1]}" width="${r[2]}" height="${r[3]}" fill="${h.c}" opacity=".35"/>`;
+    for (const l of page.layers || []) {
+      if (l.visible === false) continue;
+      for (const s of l.strokes || []) {
+        const p = s.pts || [];
+        if (p.length < 2) continue;
+        let d = `M${p[0]} ${p[1]}`;
+        for (let i = 2; i < p.length; i += 2) d += `L${p[i]} ${p[i + 1]}`;
+        if (p.length === 2) d += "l0.0005 0";
+        out += `<path d="${d}" stroke="${s.c}" stroke-width="${s.w}"${s.hl ? ' opacity=".35"' : ""}/>`;
+      }
+    }
+    svg.innerHTML = out;
+    return svg;
+  }
+  function inkSet() {
+    const sizes = (R && R.ink && R.ink.sizes) || {};
+    const keys = Object.keys(sizes).filter((k) => Object.keys(sizes[k].pages || {}).length);
+    keys.sort((a, b) => (sizes[b].at || 0) - (sizes[a].at || 0));
+    return keys.length ? { size: keys[0], ...sizes[keys[0]] } : null;
+  }
+  async function loadInk(it) {
+    const key = "ink-" + it.id;
+    let ink = null;
+    try { ink = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) {}
+    if (S.conn.token) {
+      try {
+        ink = await api("GET", `/sync/item/${it.id}/ink`);
+        try { if (Object.keys(ink.sizes || {}).length) localStorage.setItem(key, JSON.stringify(ink)); else localStorage.removeItem(key); } catch (e) {}
+      } catch (e) {}
+    }
+    if (!R || R.it.id !== it.id) return;
+    R.ink = ink;
+    const set = inkSet();
+    if (!set) return;
+    let off = false; try { off = localStorage.getItem("ink-off") === "1"; } catch (e) {}
+    R.inkOn = !set.reflow && R.kind === "pdf" && !off;
+    const tools = $("#reader .r-tools");
+    if (tools && !tools.querySelector("[data-rt=ink]"))
+      tools.insertAdjacentHTML("afterbegin", `<button data-rt="ink" aria-label="Writing from the reMarkable" title="Writing from the reMarkable" class="${R.inkOn ? "on" : ""}">✒</button>`);
+    if (R.drawAll) R.drawAll();
+  }
+  function toggleInk() {
+    const set = inkSet();
+    if (!set) return;
+    if (set.reflow || R.kind !== "pdf") return inkSheet(set);
+    R.inkOn = !R.inkOn;
+    try { localStorage.setItem("ink-off", R.inkOn ? "0" : "1"); } catch (e) {}
+    $("#reader [data-rt=ink]")?.classList.toggle("on", R.inkOn);
+    if (R.drawAll) R.drawAll();
+  }
+  function drawInk(box) {
+    box.querySelectorAll(".ink-layer").forEach((x) => x.remove());
+    const set = R.inkOn && inkSet();
+    const page = set && set.pages[String(box.dataset.page)];
+    if (!page) return;
+    const w = parseFloat(box.style.width) || box.offsetWidth || 1, h = parseFloat(box.style.height) || box.offsetHeight || 1;
+    box.append(inkSvg(page, h / w));
+  }
+  function inkSheet(set) {
+    const nums = Object.keys(set.pages).map(Number).sort((a, b) => a - b);
+    const s = sheet(`<h4>Written on the reMarkable</h4><p class="ink-note">${nums.length} page${nums.length === 1 ? "" : "s"}${set.reflow ? `, as laid out on the tablet (text size ${esc(set.size)})` : ""}.</p><div class="ink-pages"></div>`, "ink-sheet");
+    const grid = s.querySelector(".ink-pages");
+    for (const n of nums) {
+      const page = set.pages[String(n)];
+      const fig = document.createElement("figure");
+      fig.innerHTML = `<div class="ink-frame${page.board ? " board" : ""}"><img alt="Page ${n}" loading="lazy" src="/net/sync/item/${R.it.id}/rm/page/${n}?size=${encodeURIComponent(set.size)}"></div><figcaption>Page ${n}${page.board ? " · whiteboard" : ""}</figcaption>`;
+      const img = fig.querySelector("img"), frame = fig.querySelector(".ink-frame");
+      img.onload = () => {
+        const svg = inkSvg(page, img.naturalHeight / img.naturalWidth);
+        svg.style.left = img.offsetLeft + "px"; svg.style.top = img.offsetTop + "px";
+        svg.style.width = img.offsetWidth + "px"; svg.style.height = img.offsetHeight + "px";
+        frame.append(svg);
+      };
+      // (the computer may still be drawing that page: asked again for a while; failing that, the ink on a plain page)
+      let tries = 0;
+      const src = img.src;
+      img.onerror = () => {
+        if (++tries < 15 && S.conn.token) { setTimeout(() => { img.src = src + "&r=" + tries; }, 2500); return; }
+        frame.classList.add("blank");
+        frame.textContent = "";
+        const svg = inkSvg(page, 4 / 3);
+        frame.append(svg);
+        fig.querySelector("figcaption").textContent += " · the page itself shows when the computer is reachable";
+      };
+      grid.append(fig);
+    }
+  }
   function drawPdfAnns(box) {
     if (!box || !R) return;
+    drawInk(box);
     const num = Number(box.dataset.page), layer = box.querySelector(".hl-layer");
     if (layer) layer.innerHTML = anns().filter((a) => !isPin(a) && !isBm(a)).flatMap((a) => (a.locator.rects || []).filter((r) => r.p === num).map((r) =>
       `<i class="hl ${a.id === R.active ? "on" : ""}" data-ann="${esc(a.id)}" style="left:${r.x * 100}%;top:${r.y * 100}%;width:${r.w * 100}%;height:${r.h * 100}%;background:${hl(a.color)}"></i>`)).join("");
@@ -1079,49 +1180,147 @@ Object.assign(window.Reader, (() => {
   const pauseFollow = () => { if (!abNav) followPause = Date.now() + 12000; };
   const normT = (s) => (s || "").replace(/[­​]/g, "").replace(/\s+/g, " ").trim();
   async function listen() {
-    if (R.ab && R.ab.audio) { const a = R.ab.audio; if (a.paused) a.play(); else a.pause(); return; }
-    let m;
-    try { m = await api("GET", `/sync/item/${R.it.id}/audiobook`); } catch (e) { return toast(e.offline ? "Listening needs your computer: it streams the audiobook." : "This book has no audiobook yet."); }
-    let ch = 0, t = 0;
-    if (R.kind === "epub") {
-      const href = (R.rend.currentLocation()?.start?.href || "").split("/").pop();
-      ch = Math.max(0, m.chapters.findIndex((c) => (c.sentences || []).some((s) => (s.href || "").split("/").pop() === href)));
-    } else m.chapters.forEach((c, i) => { if ((c.page || 1) <= (R.cur || 1)) ch = i; });
-    try { const p = JSON.parse(R.it.audio_pos || "{}"); if (p.ch === ch) t = p.t || 0; } catch (e) {}
-    const audio = new Audio();
-    R.ab = { m, ch, audio, last: null };
-    const at = $("#rAb") || $("#rFoot").appendChild(Object.assign(document.createElement("span"), { id: "rAb" }));
-    const load = async (c, from) => {
-      R.ab.ch = c; at.textContent = "🎧 Loading…";
-      // (the chapter comes whole from the computer, so it seeks smoothly even through the away-from-home address)
-      const r = await fetch(`/net/sync/item/${R.it.id}/audio/${c}`);
-      if (!r.ok || !R || !R.ab) { if (R && R.ab) { at.textContent = ""; toast("Couldn't reach your computer for the audiobook."); stopListening(); } return; }
-      if (R.ab.url) URL.revokeObjectURL(R.ab.url);
-      R.ab.url = URL.createObjectURL(await r.blob());
-      audio.src = R.ab.url;
-      audio.currentTime = from || 0;
-      audio.play().catch(() => {});
-    };
-    audio.ontimeupdate = () => {
-      if (!R || !R.ab) return;
-      const c = m.chapters[R.ab.ch];
-      at.textContent = `🎧 ${(c && c.title) || "Chapter " + (R.ab.ch + 1)} · ${Math.floor(audio.currentTime / 60)}:${String(Math.floor(audio.currentTime % 60)).padStart(2, "0")}${audio.paused ? " ▶" : " ❚❚"}`;
-      if (Math.abs((R.ab.saved || 0) - audio.currentTime) > 10) { R.ab.saved = audio.currentTime; change(R.it.id, { audio_pos: JSON.stringify({ ch: R.ab.ch, t: audio.currentTime, done: false }) }); }
-      const k = (c.sentences || []).findIndex((s) => audio.currentTime >= s.t0 - 0.05 && audio.currentTime < s.t1 + 0.25);
-      if (k >= 0 && R.ab.last !== R.ab.ch + ":" + k) { R.ab.last = R.ab.ch + ":" + k; sentence(c.sentences[k]); }
-    };
-    audio.onpause = audio.onplay = () => { $("#reader [data-rt=listen]")?.classList.toggle("on", !audio.paused); audio.ontimeupdate(); };
-    audio.onended = () => { if (R && R.ab && R.ab.ch + 1 < m.chapters.length) load(R.ab.ch + 1, 0); };
-    at.onclick = () => (audio.paused ? audio.play() : audio.pause());
-    load(ch, t);
+    const it = S.items[R.it.id] || R.it, id = it.id, st = Listen.state();
+    if (st.id === id && st.playing) return Listen.toggle();
+    const m = await Listen.manifest(id);
+    if (!m) return toast(S.conn.token ? "Couldn't get the audiobook from your computer." : "This book has no audiobook on the phone.");
+    attach(m);
+    const pos = Listen.posOf(it), ck = it.clock || {};
+    const audioNewer = pos && (ck.audio_pos || 0) > (ck.last_location || 0) + 2;
+    followPause = 0;
+    // you listened last: carry on where the audio was
+    if (audioNewer && !pos.done) return st.id === id && st.loaded ? Listen.toggle() : Listen.play(id);
+    // you read last: from the page you're on (unless the audio's already on this page)
+    if (m.chapters.some((c) => c.sentences && c.sentences.length)) {
+      const pg = pageSentence(m, st.id === id && st.loaded ? { ch: st.ch, t: st.t } : pos);
+      if (pg && pg.audioHere) return st.id === id && st.loaded ? Listen.toggle() : Listen.play(id);
+      if (pg && pg.first) return Listen.play(id, { ch: pg.first.ci, t: Math.max(0, pg.first.s.t0 - 0.3) });
+    }
+    Listen.play(id, Listen.posAt(m, it.progress || 0));
   }
-  function stopListening() {
+  // the reader lights up the sentence the player is on (while this book's audiobook plays)
+  function attach(m) {
+    if (!R) return;
+    R.ab = { m, last: null, cfi: null };
+    if (R.abTick) Listen.offTick(R.abTick);
+    R.abTick = () => {
+      if (!R || !R.ab) return;
+      const st = Listen.state();
+      $("#reader [data-rt=listen]")?.classList.toggle("on", st.id === R.it.id && st.playing);
+      if (st.id !== R.it.id) return;
+      const c = R.ab.m.chapters[st.ch];
+      if (!c) return;
+      const k = (c.sentences || []).findIndex((s) => st.t >= s.t0 - 0.05 && st.t < s.t1 + 0.25);
+      if (k >= 0 && R.ab.last !== st.ch + ":" + k) { R.ab.last = st.ch + ":" + k; sentence(c.sentences[k]); }
+    };
+    Listen.onTick(R.abTick);
+    Listen.audio.addEventListener("pause", R.abTick); Listen.audio.addEventListener("play", R.abTick);
+  }
+  function stopListening() {                 // (leaving the reader: the audiobook keeps playing, in the little bar)
     if (!R || !R.ab) return;
-    const a = R.ab.audio;
-    if (a) { change(R.it.id, { audio_pos: JSON.stringify({ ch: R.ab.ch, t: a.currentTime || 0, done: false }) }); a.pause(); a.removeAttribute("src"); }
-    if (R.ab.url) URL.revokeObjectURL(R.ab.url);
+    if (R.abTick) { Listen.offTick(R.abTick); Listen.audio.removeEventListener("pause", R.abTick); Listen.audio.removeEventListener("play", R.abTick); }
     if (R.ab.cfi && R.rend) try { R.rend.annotations.remove(R.ab.cfi, "highlight"); } catch (e) {}
     R.ab = null;
+    setTimeout(() => Listen.paint(), 50);
+  }
+  // the section's text, flattened the way sentences are matched (findRange), and where each character is
+  function flatText(root) {
+    const w = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let flat = "", sp = true;
+    const map = [];
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      if (n.parentElement && n.parentElement.closest("script,style,.ink-pin,sup")) continue;
+      const v = n.nodeValue;
+      for (let i = 0; i < v.length; i++) {
+        let ch = v[i];
+        if (ch === "\u00ad" || ch === "\u200b") continue;
+        if (/\s/.test(ch)) { if (sp) continue; ch = " "; sp = true; } else sp = false;
+        flat += ch; map.push([n, i]);
+      }
+    }
+    return { flat, map };
+  }
+  // the first sentence of the audiobook on the page you're looking at (and whether the audio's place is on it)
+  function pageSentence(m, apos) {
+    const sentAt = (ch, t) => { const ss = (m.chapters[ch] || {}).sentences || []; let j = -1; ss.forEach((x, n) => { if (x.t0 <= t + 0.05) j = n; }); return j; };
+    const ak = apos ? sentAt(apos.ch || 0, apos.t || 0) : -2;
+    const isA = (ci, k) => apos && (apos.ch || 0) === ci && k === ak;
+    if (R.kind === "pdf") {
+      const pg = R.cur || 1;
+      let first = null, audioHere = false;
+      m.chapters.forEach((c, ci) => (c.sentences || []).forEach((s, k) => { if ((s.page || 0) === pg) { if (!first) first = { ci, k, s }; if (isA(ci, k)) audioHere = true; } }));
+      if (!first) m.chapters.forEach((c, ci) => (c.sentences || []).forEach((s, k) => { if (!first && (s.page || 0) >= pg) first = { ci, k, s }; }));
+      return { first, audioHere };
+    }
+    if (R.kind !== "epub" || !R.rend) return null;
+    const loc = R.rend.currentLocation();
+    if (!loc || !loc.start) return null;
+    const c = R.rend.getContents().find((x) => x.sectionIndex === loc.start.index) || R.rend.getContents()[0];
+    if (!c) return null;
+    const href = (R.book.spine.get(c.sectionIndex)?.href || "").split("/").pop();
+    const list = [];
+    m.chapters.forEach((ch, ci) => (ch.sentences || []).forEach((s, k) => { if ((s.href || "").split("/").pop() === href) list.push({ ci, k, s }); }));
+    if (!list.length) return null;
+    const { flat, map } = flatText(c.document.body);
+    let from = 0;
+    for (const x of list) {               // (each just after the one before: a short line can be said again further on)
+      const want = normT(x.s.text);
+      let at = flat.indexOf(want, from);
+      if (at < 0) at = flat.indexOf(want.slice(0, 48), from);
+      if (at >= 0 && (from === 0 || at - from < 1500 + want.length)) { x.at = at; from = at + 1; }
+    }
+    const idx = (node, off) => { for (let i = 0; i < map.length; i++) if (map[i][0] === node && map[i][1] >= off) return i; return -1; };
+    let a = 0, b = flat.length;
+    try {
+      const r0 = new ePub.CFI(loc.start.cfi).toRange(c.document), r1 = new ePub.CFI(loc.end.cfi).toRange(c.document);
+      const i0 = idx(r0.startContainer, r0.startOffset), i1 = idx(r1.startContainer, r1.startOffset);
+      if (i0 >= 0) a = i0;
+      if (i1 >= 0) b = i1;
+    } catch (e) {}
+    const on = list.filter((x) => x.at != null && x.at >= a - 2 && x.at <= b);
+    return { first: on[0] || list.find((x) => x.at != null && x.at >= a) || null, audioHere: on.some((x) => isA(x.ci, x.k)) };
+  }
+  // opening the book after listening: go to where the audio got to (Undo goes back)
+  async function followAudio() {
+    const it = S.items[R.it.id] || R.it, pos = Listen.posOf(it), ck = it.clock || {};
+    if (!R || it.audio_status !== "ready" || !pos || !((ck.audio_pos || 0) > (ck.last_location || 0) + 2)) return;
+    const st = Listen.state();
+    const m = await Listen.manifest(it.id);
+    if (!m || !R || R.it.id !== it.id) return;
+    if (st.id === it.id && st.playing) { attach(m); return; }          // (playing: the read-along follows it)
+    const tl = m.aligned || m.source !== "narrated";
+    let s = null;
+    if (tl) for (let i = pos.ch || 0; i >= 0 && !s; i--) { for (const x of (m.chapters[i] || {}).sentences || []) { if (i < (pos.ch || 0) || x.t0 <= (pos.t || 0) + 0.05) s = x; else break; } }
+    const back = R.kind === "pdf" ? R.cur : R.rend && R.rend.currentLocation()?.start?.cfi;
+    abNav = true;
+    try {
+      if (R.kind === "pdf") {
+        const pg = s && s.page ? s.page : Math.max(1, Math.round(Listen.fracAt(m, pos.ch || 0, pos.t || 0) * (R.n || 1)));
+        if (pg === R.cur || !R.go) return;
+        R.go(pg);
+      } else if (s && s.href) {
+        const sec = R.book.spine.spineItems.find((x) => x.href.split("/").pop() === s.href.split("/").pop());
+        if (!sec) return;
+        await R.rend.display(sec.href);
+        const c = R.rend.getContents().find((x) => x.sectionIndex === sec.index);
+        const range = c && findRange(c.document.body, s.text);
+        if (range) await R.rend.display(c.cfiFromRange(range));
+      } else {
+        const f = Listen.fracAt(m, pos.ch || 0, pos.t || 0);
+        if (R.book.locations.length()) await R.rend.display(R.book.locations.cfiFromPercentage(f));
+        else { const n = R.book.spine.length, sec = R.book.spine.get(Math.min(n - 1, Math.floor(f * n))); if (sec) await R.rend.display(sec.href); }
+      }
+      undoToast(s ? "🎧 Moved to where the audiobook got to" : "🎧 Moved to about where the audiobook got to", back ? () => { abNav = true; Promise.resolve(R.kind === "pdf" ? R.go(back) : R.rend.display(back)).finally(() => (abNav = false)); } : null);
+    } catch (e) { console.warn("audiobook place", e); }
+    finally { setTimeout(() => (abNav = false), 300); }
+  }
+  function undoToast(msg, undo) {
+    const t = document.createElement("div");
+    t.className = "ab-undo";
+    t.innerHTML = `<span>${esc(msg)}</span>${undo ? `<button class="btn sm">Undo</button>` : ""}`;
+    if (undo) t.querySelector("button").onclick = () => { t.remove(); undo(); };
+    document.body.append(t);
+    setTimeout(() => t.remove(), 9000);
   }
   const abRetry = () => { if (R && R.ab) R.ab.last = null; };
   function findRange(root, text) {
@@ -1369,6 +1568,7 @@ Object.assign(window.Reader, (() => {
       if (k === "pin") return pinMode(!R.pinMode);
       if (k === "mark") return toggleMark();
       if (k === "listen") return listen();
+      if (k === "ink") return toggleInk();
       if (k === "prevEp") return episode(-1);
       if (k === "nextEp") return episode(1);
     }

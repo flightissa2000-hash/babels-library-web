@@ -1635,7 +1635,21 @@ function uploadList() { try { return JSON.parse(A ? A.uploads() : "[]"); } catch
 function uploadsHtml() {
   const list = uploadList();
   if (!list.length) return "";
-  return `<section class="sec" id="upSec"><h2>Going to your computer</h2><div class="list">${list.map((u) => {
+  const rows = list.map(upRow).join("");
+  if (list.length === 1) return `<section class="sec" id="upSec"><h2>Going to your computer</h2><div class="list">${rows}</div></section>`;
+  // several: one line that opens to show each (so a big batch doesn't push the page down)
+  const n = (st) => list.filter((u) => st.includes(u.state)).length;
+  const done = n(["done"]), bad = n(["failed", "cancelled"]), going = n(ACTIVE);
+  const tot = list.reduce((a, u) => a + Math.max(0, u.total), 0), sent = list.reduce((a, u) => a + (u.state === "done" ? Math.max(0, u.total) : u.sent), 0);
+  const pc = tot ? Math.round(100 * sent / tot) : 0;
+  const what = [going ? `${done} of ${list.length} sent · ${pc}%` : `${done} of ${list.length} sent`, bad ? `${bad} stopped` : ""].filter(Boolean).join(" · ");
+  return `<section class="sec up-group" id="upSec"><details ${S.upOpen ? "open" : ""} data-up-group>
+    <summary class="row up-row up-sum"><span class="t"><b>⬆ ${going ? "Sending" : "Sent"} ${list.length} files to your computer</b><small>${esc(what)}</small><span class="p"><i style="width:${going ? pc : 100}%"></i></span></span>
+      ${going ? "" : `<button class="btn sm" data-up-clearall>✕</button>`}<span class="up-chev">▾</span></summary>
+    <div class="list">${rows}</div></details></section>`;
+}
+function upRow(u) {
+  {
     const p = u.total > 0 ? Math.round(100 * u.sent / u.total) : 0;
     const what = u.state === "done" ? "Sent: the computer is adding it to the library" : u.state === "failed" ? "Stopped: " + (u.msg || "")
       : u.state === "cancelled" ? "Cancelled" : u.state === "retrying" ? `${p}% · connection lost, trying again…`
@@ -1643,8 +1657,9 @@ function uploadsHtml() {
     const btns = ACTIVE.includes(u.state) ? `<button class="btn sm" data-up-cancel="${esc(u.id)}">Cancel</button>`
       : `${u.state === "failed" || u.state === "cancelled" ? `<button class="btn sm" data-up-retry="${esc(u.id)}">Try again</button>` : ""}<button class="btn sm" data-up-clear="${esc(u.id)}">✕</button>`;
     return `<div class="row up-row"><span class="t"><b>⬆ ${esc(u.name)}</b><small>${esc(what)}</small><span class="p"><i style="width:${u.state === "done" ? 100 : p}%"></i></span></span>${btns}</div>`;
-  }).join("")}</div></section>`;
+  }
 }
+document.addEventListener("toggle", (e) => { if (e.target.matches?.("[data-up-group]")) S.upOpen = e.target.open; }, true);
 let upSeen = {};
 function paintUploads() {
   const sec = $("#upSec");
@@ -1655,12 +1670,19 @@ function paintUploads() {
 setInterval(() => {
   if (!A || !A.uploads) return;
   const list = uploadList();
+  let fresh = 0;
   for (const u of list) {
     if (upSeen[u.id] && upSeen[u.id] !== u.state) {
-      if (u.state === "done") { toast(`“${u.name}” is on your computer`); setTimeout(() => sync(), 5000); }
+      if (u.state === "done") fresh++;
       if (u.state === "failed") toast(`Couldn't send “${u.name}”: ${u.msg || "error"}`);
     }
     upSeen[u.id] = u.state;
+  }
+  if (fresh) {
+    const going = list.filter((u) => ACTIVE.includes(u.state)).length;
+    if (list.length === 1) toast(`“${list[0].name}” is on your computer`);
+    else if (!going) toast(`All ${list.filter((u) => u.state === "done").length} files are on your computer`);
+    clearTimeout(paintUploads.sy); paintUploads.sy = setTimeout(() => sync(), 5000);
   }
   if (list.length || $("#upSec")) paintUploads();
 }, 1000);
@@ -1856,7 +1878,8 @@ function openSheet(id) {
         ${here ? `<button class="btn primary" data-open="${it.id}">▶ ${verb(it)}</button>` : ""}
         ${dl ? `<div style="flex:1 1 100%"><div class="dlbar" data-dlbar="${dlIt.id}"><i style="width:${st && st.total > 0 ? 100 * st.done / st.total : 3}%"></i></div><small class="hint">Starting…</small></div><button class="btn sm" data-cancel="${dlIt.id}">Cancel</button>` : ""}
         ${(!here || more) && !dl && it.has_file ? `<button class="btn ${here ? "" : "primary"}" data-get="${it.id}">⬇ Get from computer${!rc && it.file_size ? " (" + fmtSize(it.file_size) + ")" : ""}</button>` : ""}
-        ${!it.has_file ? `<span class="hint">${it.wanted ? "On your wishlist." : it.physical ? "A physical copy (no file)." : "No file on the computer."}</span>` : ""}
+        ${it.audio_status === "ready" ? `<button class="btn ${here ? "" : "primary"}" data-listen-open="${it.id}">🎧 Listen${(() => { const ap = Listen.posOf(it); return ap && !ap.done && (ap.ch || ap.t > 20) ? " (carry on)" : ""; })()}</button><span data-ab-slot style="display:contents">${Listen.sheetButton(it)}</span>` : ""}
+        ${!it.has_file && it.audio_status !== "ready" ? `<span class="hint">${it.wanted ? "On your wishlist." : it.physical ? "A physical copy (no file)." : "No file on the computer."}</span>` : ""}
       </div>
       <div class="btns">
         <button class="btn sm" data-fav="${it.id}">${it.favorite ? "★ Favourite" : "☆ Favourite"}</button>
@@ -2288,6 +2311,7 @@ document.addEventListener("click", (e) => {
   const uc = t.closest("[data-up-cancel]"); if (uc) { A.cancelUpload(uc.dataset.upCancel); toast("Cancelling…"); return; }
   const ur = t.closest("[data-up-retry]"); if (ur) { A.retryUpload(ur.dataset.upRetry); return; }
   const ux = t.closest("[data-up-clear]"); if (ux) { A.dismissUpload(ux.dataset.upClear); paintUploads(); return; }
+  if (t.closest("[data-up-clearall]")) { e.preventDefault(); uploadList().filter((u) => !ACTIVE.includes(u.state)).forEach((u) => A.dismissUpload(u.id)); paintUploads(); return; }
   if (t.closest("#libFilt, #libFiltSum")) { S.libFilt = !S.libFilt; return render(); }      // (the library's group / sort / collection)
   if (t.closest("#sendPc")) {
     if (!S.conn.token) return toast("Pair with your computer first (Settings).");

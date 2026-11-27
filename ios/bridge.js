@@ -5,7 +5,7 @@
      the rest    the service worker (sw.js) serves files, covers and comic pages; Safari does the browsing, its
                  speech recognition the dictation, Web Push the News notifications */
 (() => {
-  const APP_SCRIPTS = ["js/themes.js", "vendor/jszip.min.js", "vendor/epub.min.js", "vendor/pdf.min.js", "js/app.js", "js/online.js", "js/jukebox.js", "js/dictate.js", "js/journal.js", "js/catalogue.js", "js/news.js", "js/readers.js", "js/pagekeys.js", "js/layouts.js", "js/sky.js", "js/addons.js", "js/mail.js", "js/quick.js"];
+  const APP_SCRIPTS = ["js/themes.js", "vendor/jszip.min.js", "vendor/epub.min.js", "vendor/pdf.min.js", "js/app.js", "js/online.js", "js/jukebox.js", "js/listen.js", "js/dictate.js", "js/journal.js", "js/catalogue.js", "js/news.js", "js/readers.js", "js/pagekeys.js", "js/layouts.js", "js/sky.js", "js/addons.js", "js/mail.js", "js/quick.js"];
   const kv = new Map();
   const files = {};               // name -> size, finished files only
   const dls = {};                 // download id -> {item, name, title, total, done, state}
@@ -45,7 +45,7 @@
       if (d.state === "cancelled") return;
       const start = rec.pieces * PIECE;
       if (rec.size && start >= rec.size) break;
-      const r = await Net.call("GET", "/sync/file/" + d.item, null, 180000, { Range: `bytes=${start}-${start + PIECE - 1}` });
+      const r = await Net.call("GET", d.path || "/sync/file/" + d.item, null, 180000, { Range: `bytes=${start}-${start + PIECE - 1}` });
       if (d.state === "cancelled") return;
       if (r.status === 206 || r.status === 200) {
         const cr = /\/(\d+)\s*$/.exec(r.res.headers.get("content-range") || "");
@@ -320,6 +320,13 @@
       let total = 0;
       try { total = S.items[itemId].file_size || 0; } catch (e) {}      // (the app's own state, a global of app.js)
       dls[dl] = { item: itemId, name, title, total, done: 0, state: "waiting" };
+      persistDls();
+      setTimeout(() => { done(id, 200, String(dl), "remote"); runDownloads(); }, 0);
+    },
+    downloadPath(id, path, name, title) {          // (a chapter of an audiobook, for listening offline)
+      if (!/^\/sync\/item\/\d+\/audio\/\d+$/.test(path || "")) return setTimeout(() => done(id, 0, "bad path"), 0);
+      const dl = Date.now() * 10 + Math.floor(Math.random() * 10);
+      dls[dl] = { item: 0, path, name, title, total: 0, done: 0, state: "waiting" };
       persistDls();
       setTimeout(() => { done(id, 200, String(dl), "remote"); runDownloads(); }, 0);
     },

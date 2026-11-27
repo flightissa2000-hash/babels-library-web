@@ -149,7 +149,7 @@ const Journal = (() => {
     if (cur) html += "</div>";
     const qn = quick();
     v.innerHTML = `<div class="jv">${seg()}
-      ${W() ? `<div class="jw-top"><button class="jw-quick" id="qNote" title="Quick notes: stay on this phone only"><span class="jw-mic">🎙</span><span><b>Quick note</b><small>Hold to say one · tap to see them${qn.length ? ` (${qn.length})` : ""}</small></span></button></div>
+      ${W() ? `<button class="jw-fab" id="qNote" title="Quick notes (tap to see them, hold to say one)" aria-label="Quick notes${qn.length ? `, ${qn.length}` : ""}"><span>🗒</span>${qn.length ? `<i>${qn.length}</i>` : ""}</button>
         <p class="hint j-wsub">Ideas, drafts, plans, and your quick notes once you put them here. The same notebook as the computer's.</p>` : `<div class="panel j-year"><b>${year}</b><span>${done.filter((l) => l.kind === "book").length} books · ${done.filter((l) => l.kind === "movie").length} films · ${done.filter((l) => l.kind === "show").length} shows finished</span></div>
       ${kinds.length > 1 ? `<div class="chips j-kinds">${[["all", "All types"], ...kinds.map((k) => [k, `${KIND_ICON[k]} ${KIND_PLURAL[k]}`])].map(([k, n]) => `<button data-jkind="${k}" class="${S.jkind === k ? "on" : ""}">${n}</button>`).join("")}</div>` : ""}
       <div class="chips">${[["all", "All"], ...stList(S.jkind === "all" ? undefined : S.jkind)].map(([k, n]) => `<button data-jstatus="${k}" class="${S.jstatus === k ? "on" : ""}">${n}</button>`).join("")}</div>`}
@@ -157,6 +157,14 @@ const Journal = (() => {
         <button class="btn" id="jNew">＋ ${W() ? "New page" : "New"}</button></div>
       <div id="jList">${html || `<p class="empty">${S.jq || (!W() && (S.jkind !== "all" || S.jstatus !== "all")) ? "Nothing matches." : W() ? "No pages yet. ＋ New starts one; ✎ Quick notes can be put here too." : "Your journal is empty. Books and films you review on the computer show up here too."}</p>`}
       ${rows.length > S.limit ? `<button class="btn more" id="more">Show more</button>` : ""}</div></div>`;
+    if (W()) {                                  // the corner button sits just above the tab bar (when it's along the bottom)
+      const tb = document.querySelector(".tabs"), r = tb && tb.getBoundingClientRect();
+      const vis = r && r.width > 0 && r.height > 0 && getComputedStyle(tb).visibility !== "hidden";
+      const h = vis && r.width > innerWidth * 0.6 && r.bottom >= innerHeight - 2 ? Math.round(r.height) : 0;
+      const side = vis && r.height > innerHeight * 0.6 && r.right >= innerWidth - 2 && r.left > innerWidth * 0.5 ? Math.round(innerWidth - r.left) : 0;  // (a rail down the right)
+      document.documentElement.style.setProperty("--tabs-h", h + "px");
+      document.documentElement.style.setProperty("--tabs-r", side + "px");
+    }
   }
   // a journal entry's picture: its own cover (chosen in the journal) first, then the library's, then its kind's icon
   function logCover(l, it, style = "") {
@@ -269,6 +277,92 @@ const Journal = (() => {
      own file, until "Put them in the writing notebook" makes them dated entries on its "Quick notes" page (synced). */
   const quick = () => load("quicknotes.json", []);
   const saveQuick = (list) => store("quicknotes.json", list);
+  /* photos on quick notes: taken or picked, shrunk (no wider or taller than 1600 px), kept on the phone in their own files */
+  const qpGet = (pid) => load(`qp-${pid}.json`, null);
+  const qpPut = (pid, data) => store(`qp-${pid}.json`, data);
+  const qpDrop = (pid) => store(`qp-${pid}.json`, null);
+  function qPicsHtml(n) {
+    const ps = (n.photos || []).map((pid) => [pid, qpGet(pid)]).filter(([, d]) => d);
+    return ps.length ? `<div class="qn-pics">${ps.map(([pid, d]) => `<button class="qn-pic" data-qpview="${esc(pid)}"><img alt="" src="${d}"></button>`).join("")}</div>` : "";
+  }
+  function shrink(file) {
+    return new Promise((ok, no) => {
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement("canvas");
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        ok({ data: c.toDataURL("image/jpeg", 0.82), w: c.width, h: c.height });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); no(new Error("That picture couldn't be opened")); };
+      img.src = url;
+    });
+  }
+  document.addEventListener("change", async (e) => {
+    const inp = e.target.closest?.("input[data-qphoto]");
+    if (!inp || !inp.files.length) return;
+    const files = [...inp.files], to = inp.dataset.qphoto;
+    toast(files.length > 1 ? `Adding ${files.length} photos…` : "Adding the photo…");
+    const pids = [];
+    for (const f of files) {
+      try { const p = await shrink(f), pid = cid(); qpPut(pid, p.data); pids.push(pid); }
+      catch (err) { toast(err.message); }
+    }
+    if (!pids.length) return;
+    const list = quick();
+    if (to === "new") {             // a new note: the photo, with whatever's typed in the box as its words
+      const box = $("#qText"), body = box ? box.value.trim() : "";
+      list.push({ id: cid(), body, at: now(), photos: pids });
+      if (box) box.value = "";
+    } else {
+      const n = list.find((x) => x.id === to);
+      if (!n) return;
+      n.photos = [...(n.photos || []), ...pids];
+    }
+    saveQuick(list);
+    toast(pids.length > 1 ? `${pids.length} photos added` : "Photo added");
+    openQuick(true);
+    window.render();
+  });
+  function viewPhoto(pid) {
+    const d = qpGet(pid);
+    if (!d) return;
+    const w = document.createElement("div");
+    w.className = "qn-view";
+    w.innerHTML = `<img alt="" src="${d}"><div class="qn-view-bar"><button class="btn danger" data-qpdel="${esc(pid)}">Delete photo</button><button class="btn" data-x>Close</button></div>`;
+    w.addEventListener("click", (e) => {
+      if (e.target.closest("[data-qpdel]")) {
+        const list = quick();
+        for (const n of list) n.photos = (n.photos || []).filter((x) => x !== pid);
+        saveQuick(list.filter((n) => n.body || (n.photos || []).length));
+        qpDrop(pid); w.remove(); toast("Photo deleted"); return openQuick(true);
+      }
+      if (e.target.closest("[data-x]") || e.target === w || e.target.tagName === "IMG") w.remove();
+    });
+    document.body.append(w);
+  }
+  /* photos of quick notes put in the writing notebook: they go to the computer as that page's photos (Fig. 1, 2…),
+     once the page exists there (a new page gets its number on the next sync; until then they wait here) */
+  async function sendQuickPhotos() {
+    let wait = load("qp-pending.json", []);
+    if (!wait.length || !S.conn.token) return;
+    const page = S.log.find((x) => x.kind === "writing" && x.title === "Quick notes" && !String(x.id).startsWith("c:"));
+    if (!page) return;
+    for (const w of [...wait]) {
+      const d = qpGet(w.pid);
+      if (d) {
+        try { await api("POST", `/sync/log/${page.id}/photos`, { data: d, caption: w.caption || "", w: w.w, h: w.h }); }
+        catch (err) { return; }                    // (no computer now: next time)
+      }
+      qpDrop(w.pid);
+      wait = wait.filter((x) => x.pid !== w.pid);
+      store("qp-pending.json", wait);
+    }
+    toast("The quick notes' photos are on the computer");
+  }
+  setInterval(() => { if (load("qp-pending.json", []).length) sendQuickPhotos(); }, 30000);
+
   function openQuick(quiet) {
     openId = null;
     const list = quick();
@@ -278,13 +372,16 @@ const Journal = (() => {
       const d = new Date(n.at * 1000).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
       if (d !== cur) { html += `<h3 class="j-month">${esc(d)}</h3>`; cur = d; }
       html += `<div class="note j-entry qn-entry"><small class="hint">${new Date(n.at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small>
-        <div class="j-body">${esc(n.body)}</div><div class="btns" style="margin:6px 0 0"><button class="btn sm mic" data-qdict="${esc(n.id)}" aria-label="Keep dictating into this note">🎙 Keep dictating</button><button class="btn sm" data-qedit="${esc(n.id)}">Edit</button><button class="btn sm danger" data-qdel="${esc(n.id)}">Delete</button></div></div>`;
+        ${n.body ? `<div class="j-body">${esc(n.body)}</div>` : ""}${qPicsHtml(n)}<div class="btns" style="margin:6px 0 0"><button class="btn sm mic" data-qdict="${esc(n.id)}" aria-label="Keep dictating into this note">🎙 Keep dictating</button><label class="btn sm" aria-label="Add a photo to this note">📷<input type="file" accept="image/*" capture="environment" data-qphoto="${esc(n.id)}" hidden></label><button class="btn sm" data-qedit="${esc(n.id)}">Edit</button><button class="btn sm danger" data-qdel="${esc(n.id)}">Delete</button></div></div>`;
     }
     sh.innerHTML = `<div class="sheet-bar"><button class="back" data-close>‹</button><h2>Quick notes</h2></div>
       <div class="it-body" style="padding-top:14px">
-        <p class="hint">For things you need now. They stay on this phone until you put them in the writing notebook (then they're on the computer too). Hold ✎ Quick (or 🎙) to say a note instead.</p>
+        <p class="hint">For things you need now. They stay on this phone until you put them in the writing notebook (then they're on the computer too). Hold the 🗒 button (or 🎙) to say a note instead.</p>
         <textarea id="qText" rows="4" placeholder="Jot it down…"></textarea>
-        <div class="btns"><button class="btn primary" id="qAdd">Add note</button>${list.length ? `<button class="btn" id="qCollect">📓 Put them in the writing notebook</button><button class="btn danger" id="qClear">Clear all quick notes</button>` : ""}</div>
+        <div class="btns"><button class="btn primary" id="qAdd">Add note</button>
+          <label class="btn">📷 Photo<input type="file" accept="image/*" capture="environment" data-qphoto="new" hidden></label>
+          <label class="btn">🖼 From gallery<input type="file" accept="image/*" multiple data-qphoto="new" hidden></label></div>
+        <div class="btns">${list.length ? `<button class="btn" id="qCollect">📓 Put them in the writing notebook</button><button class="btn danger" id="qClear">Clear all quick notes</button>` : ""}</div>
         ${html || `<p class="empty">No quick notes.</p>`}
       </div>
       <button class="mic qn-fab" data-dict-for="#qText" aria-label="Dictate: hold to talk, or tap to start and stop">🎙</button>`;
@@ -414,13 +511,19 @@ const Journal = (() => {
         jop({ op: "log_new", cid: c, fields });
       }
       const ref = String(l.id).startsWith("c:") ? { log_cid: String(l.id).slice(2) } : { log_id: l.id };
+      const wait = load("qp-pending.json", []);
       for (const n of list) {
-        const c = cid();
-        S.journal["c:" + c] = { id: "c:" + c, log_id: l.id, body: n.body, created_at: n.at, updated_at: now() };
-        jop({ op: "entry_add", cid: c, ...ref, body: n.body, created_at: n.at });
+        const c = cid(), np = (n.photos || []).length;
+        const body = (n.body || "") + (np ? `${n.body ? "\n" : ""}📷 ${np === 1 ? "A photo" : np + " photos"} (on this page)` : "");
+        S.journal["c:" + c] = { id: "c:" + c, log_id: l.id, body, created_at: n.at, updated_at: now() };
+        jop({ op: "entry_add", cid: c, ...ref, body, created_at: n.at });
+        const day = new Date(n.at * 1000).toLocaleDateString([], { day: "numeric", month: "short" });
+        for (const pid of n.photos || []) wait.push({ pid, caption: `Quick note, ${day}${n.body ? ": " + n.body.slice(0, 80) : ""}` });
       }
+      store("qp-pending.json", wait);
       l.updated_at = now();
       saveQuick([]);
+      if (wait.length) sync().then(() => sendQuickPhotos()).catch(() => {});
       toast(`${list.length} quick ${list.length === 1 ? "note" : "notes"} put in the writing notebook`);
       setPage("write");
       return open(l.id);
@@ -428,7 +531,7 @@ const Journal = (() => {
     const lg = t.closest("[data-log]"); if (lg) return open(lg.dataset.log);
     if (t.closest("[data-jcover]") && openId != null) { const l = openLog(); if (l) coverPicker(l); return; }
     if (t.closest("#jNew")) return newLog();
-    if (t.closest("#qNote")) { if (skipQuickClick) { skipQuickClick = false; return; } return openQuick(); }
+    if (t.closest("#qNote")) { if (skipQuickClick) { skipQuickClick = false; return; } return openQuick(true); }   // (just shows them: no keyboard)
     if (t.closest("#qAdd")) {
       const body = $("#qText").value.trim();
       if (!body) return toast("Write something first.");
@@ -436,7 +539,8 @@ const Journal = (() => {
       return openQuick();
     }
     const qd = t.closest("[data-qdel]");
-    if (qd) { saveQuick(quick().filter((n) => n.id !== qd.dataset.qdel)); return openQuick(); }
+    if (qd) { const gone = quick().find((n) => n.id === qd.dataset.qdel); (gone && gone.photos || []).forEach(qpDrop); saveQuick(quick().filter((n) => n.id !== qd.dataset.qdel)); return openQuick(true); }
+    const qv = t.closest("[data-qpview]"); if (qv) return viewPhoto(qv.dataset.qpview);
     // Edit: the note becomes a text box (with 🎙 to dictate into it), Save or Cancel
     const qe = t.closest("[data-qedit]");
     if (qe) {
@@ -459,7 +563,7 @@ const Journal = (() => {
     }
     if (t.closest("[data-qcancel]")) { if (Dictate.active) Dictate.end(); return openQuick(true); }
     if (t.closest("#qClear")) {
-      if (confirm("Clear all quick notes? Your journal entries aren't touched.")) { saveQuick([]); toast("Quick notes cleared"); openQuick(); }
+      if (confirm("Clear all quick notes (and their photos)? Your journal entries aren't touched.")) { quick().forEach((n) => (n.photos || []).forEach(qpDrop)); saveQuick([]); toast("Quick notes cleared"); openQuick(true); }
       return;
     }
     const ns = t.closest("[data-nstatus]"); if (ns) { $$("[data-nstatus]").forEach((b) => b.classList.toggle("on", b === ns)); return; }
