@@ -2307,7 +2307,7 @@ body.has-ab .dl-pill{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
 /* the reMarkable's ink over a page, and its inked pages (✒ in the reader) */
 .pp .ink-layer{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:4}
 .ink-layer path{fill:none;stroke-linecap:round;stroke-linejoin:round}
-.ink-sheet .ink-note{opacity:.75;margin:0 0 12px}
+.ink-sheet p.ink-note{opacity:.75;margin:0 0 12px}
 .ink-sheet .ink-pages{display:grid;grid-template-columns:1fr;gap:18px}
 .ink-sheet figure{margin:0}
 .ink-sheet .ink-frame{position:relative;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.3)}
@@ -2319,3 +2319,6 @@ body.has-ab .dl-pill{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
 .ink-sheet .ink-frame img{display:block;width:100%}
 .ink-sheet .ink-frame .ink-layer{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none}
 .ink-sheet figcaption{font-size:.85rem;opacity:.75;margin-top:6px}
+.ink-sheet .ink-note details{margin-top:6px}
+.ink-sheet .ink-note summary{font-size:.9rem;opacity:.85;padding:4px 0}
+.ink-sheet .ink-head{margin:16px 0 6px}

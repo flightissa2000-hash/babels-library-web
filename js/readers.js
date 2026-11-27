@@ -950,15 +950,53 @@ Object.assign(window.Reader, (() => {
     const list = sortAnns();
     const where = (a) => { const l = a.locator || {}; return pageOf(a) ? `p. ${pageOf(a)}` : l.label || ""; };
     const what = (a) => (isPin(a) ? `📍 Pin ${pinNo(a)}` : isBm(a) ? "🔖 Bookmark" : a.quote ? "Highlight" : "Note");
-    const s = sheet(`<div class="rs-head"><b>Notes and highlights</b><span class="hint">${list.length || ""}</span><button class="btn sm" data-rs-close>Done</button></div>
-      <div class="rs-body">${list.length ? list.map((a) => `<div class="rn ${a.id === R.active ? "on" : ""}" data-rn="${esc(a.id)}" style="--hl:${hl(a.color)}">
+    // the pages written on with the reMarkable's pen, among the notes: each opens out to show the page
+    const set = inkSet();
+    const paged = R.kind === "pdf" || R.kind === "comic";
+    const inkItems = set ? Object.keys(set.pages).map(Number).sort((a, b) => a - b).map((n) => {
+      const pg = set.pages[String(n)];
+      const strokes = (pg.layers || []).reduce((t, l) => t + (l.strokes || []).length, 0) + (pg.highlights || []).length;
+      return { page: n, html: `<div class="rn ink-note" data-ink-note="${n}">
+          <div class="rn-top"><small>✒ Written on the reMarkable · ${set.reflow ? `tablet page ${n}` : `p. ${n}`} · ${strokes} stroke${strokes === 1 ? "" : "s"}${pg.board ? " · whiteboard" : ""}</small></div>
+          ${paged && !set.reflow ? `<button class="rn-go" data-ink-go="${n}">Go there ›</button>` : ""}
+          <details data-ink-page="${n}"><summary>Show the page</summary><div class="ink-frame${pg.board ? " board" : ""}"></div></details></div>` };
+    }) : [];
+    const inkLeft = inkItems.slice();
+    const takeInk = (upTo) => { let h = ""; while (inkLeft.length && inkLeft[0].page <= upTo) h += inkLeft.shift().html; return h; };
+    const count = list.length + inkItems.length;
+    const s = sheet(`<div class="rs-head"><b>Notes and highlights</b><span class="hint">${count || ""}</span><button class="btn sm" data-rs-close>Done</button></div>
+      <div class="rs-body">${count ? list.map((a) => (paged ? takeInk(pageOf(a) || 0) : "") + `<div class="rn ${a.id === R.active ? "on" : ""}" data-rn="${esc(a.id)}" style="--hl:${hl(a.color)}">
           <div class="rn-top"><small>${esc([what(a), where(a)].filter(Boolean).join(" · "))}</small>
             <span class="rn-colors">${Object.keys(HLV).map((c) => `<button data-rn-color="${c}" class="${a.color === c ? "on" : ""}" style="background:${hl(c)}" aria-label="${c}"></button>`).join("")}</span>
             <button class="rn-del" data-rn-del aria-label="Delete">🗑</button></div>
           ${a.quote ? `<blockquote data-rn-go>${esc(a.quote)}</blockquote>` : `<button class="rn-go" data-rn-go>Go there ›</button>`}
           <input class="rn-title" value="${esc(a.title || "")}" placeholder="Title (optional)">
           <div class="rn-noterow"><textarea class="rn-note" rows="2" placeholder="${isPin(a) ? "Write a comment…" : "Write a note…"}">${esc(a.note || "")}</textarea><button class="mic" data-rn-mic aria-label="Dictate">🎙</button></div></div>`).join("")
-        : `<p class="hint">Select text to highlight it (press and hold on a word, then drag), tap 📍 to pin a note anywhere on a page, or 🔖 to bookmark it. They're saved with your library, so the computer has them too.</p>`}</div>`, "notes");
+          + (inkLeft.length && !paged ? `<h4 class="ink-head">Written on the reMarkable</h4>` : "") + inkLeft.map((x) => x.html).join("")
+        : `<p class="hint">Select text to highlight it (press and hold on a word, then drag), tap 📍 to pin a note anywhere on a page, or 🔖 to bookmark it. They're saved with your library, so the computer has them too.</p>`}</div>`, "notes ink-sheet");
+    s.querySelectorAll("details[data-ink-page]").forEach((d) => d.addEventListener("toggle", () => {
+      if (!d.open) return;
+      const frame = d.querySelector(".ink-frame");
+      if (frame.childElementCount) return;
+      const n = Number(d.dataset.inkPage), page = set.pages[String(n)];
+      const img = document.createElement("img");
+      img.alt = `Page ${n}`;
+      const src = `/net/sync/item/${R.it.id}/rm/page/${n}?size=${encodeURIComponent(set.size)}`;
+      img.src = src;
+      let tries = 0;
+      img.onerror = () => {
+        if (++tries < 15 && S.conn.token) { setTimeout(() => { img.src = src + "&r=" + tries; }, 2500); return; }
+        frame.classList.add("blank"); frame.textContent = ""; frame.append(inkSvg(page, 4 / 3));
+      };
+      img.onload = () => {
+        const svg = inkSvg(page, img.naturalHeight / img.naturalWidth);
+        svg.style.left = img.offsetLeft + "px"; svg.style.top = img.offsetTop + "px";
+        svg.style.width = img.offsetWidth + "px"; svg.style.height = img.offsetHeight + "px";
+        frame.append(svg);
+      };
+      frame.append(img);
+    }));
+    s.querySelectorAll("[data-ink-go]").forEach((b) => b.addEventListener("click", () => { closeSheet(); if (R.go) R.go(Number(b.dataset.inkGo)); }));
     const el = focusId != null && s.querySelector(`[data-rn="${CSS.escape(String(R.active))}"]`);
     if (el) { el.scrollIntoView({ block: "center" }); if (edit) setTimeout(() => el.querySelector(".rn-note")?.focus(), 250); }
   }
