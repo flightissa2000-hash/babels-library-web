@@ -552,7 +552,7 @@ Object.assign(window.Reader, (() => {
         if (++tries < 15 && S.conn.token) { setTimeout(() => { img.src = src + "&r=" + tries; }, 2500); return; }
         frame.classList.add("blank");
         frame.textContent = "";
-        const svg = inkSvg(page, 4 / 3);
+        const svg = inkSvg(page, /w$/.test(set.size) ? 3 / 4 : /d$/.test(set.size) ? 1.5 : 4 / 3);
         frame.append(svg);
         fig.querySelector("figcaption").textContent += " · the page itself shows when the computer is reachable";
       };
@@ -986,7 +986,7 @@ Object.assign(window.Reader, (() => {
       let tries = 0;
       img.onerror = () => {
         if (++tries < 15 && S.conn.token) { setTimeout(() => { img.src = src + "&r=" + tries; }, 2500); return; }
-        frame.classList.add("blank"); frame.textContent = ""; frame.append(inkSvg(page, 4 / 3));
+        frame.classList.add("blank"); frame.textContent = ""; frame.append(inkSvg(page, /w$/.test(set.size) ? 3 / 4 : /d$/.test(set.size) ? 1.5 : 4 / 3));
       };
       img.onload = () => {
         const svg = inkSvg(page, img.naturalHeight / img.naturalWidth);
